@@ -1,189 +1,52 @@
-# Multiplayer Minecraft Game
+# Multiplayer Voxel Survival
 
-A multiplayer voxel-based game built with Three.js and Node.js, featuring real-time synchronization and procedurally generated terrain.
+Small shared 32 x 32 world with multiplayer building, roaming block animals, combat and survival. Desktop keyboard/mouse and WebGL are required; the HUD wraps on narrow screens, but touch controls are not implemented.
 
-## Features
+## Run
 
-- Real-time multiplayer with WebSocket synchronization
-- Procedurally generated terrain with hills and trees
-- First-person controls with physics
-- Block placing and breaking
-- 5 different block types
-- Player models with smooth interpolation
-- Auto-reconnection on disconnect
+Use a supported Node.js LTS release (Node 22 or newer recommended).
 
-## Local Development
-
-### Prerequisites
-
-- Node.js 18.0.0 or higher
-- npm (comes with Node.js)
-
-### Installation
-
-1. Install dependencies:
-```bash
+```sh
 npm install
-```
-
-2. Start the server:
-```bash
+npm test
+npm run check
 npm start
 ```
 
-3. Open your browser and navigate to:
-```
-http://localhost:3000
-```
-
-4. Open multiple browser tabs/windows to test multiplayer functionality
+Open http://localhost:3000 in two browser windows. Three.js is loaded from the pinned jsDelivr import map, so browsers need internet access.
 
 ## Controls
 
-- **WASD** - Move around
-- **Mouse** - Look around
-- **Space** - Jump
-- **Left Click** - Break block
-- **Right Click** - Place block
-- **1-5** - Select block type (Grass, Dirt, Stone, Wood, Sand)
+- Click the start panel to capture the mouse; Escape releases it.
+- WASD moves, mouse looks, Space jumps.
+- Left click hits the nearest animal/player or breaks a block, within five blocks.
+- Right click places the selected block. Keys 1-5 select grass, dirt, stone, wood or sand (unlimited building materials).
+- Animals take three hits to die and drop a rotating, floating meat item. Walk nearby to pick it up; the notice says Meat and the boxed inventory count increases.
+- E consumes one meat and restores six hunger points, up to twenty.
+- Red pixel hearts show health; pixel turkey legs show hunger. Hunger drains one point per fifteen active simulation seconds. Empty hunger costs one health per two seconds.
+- Falls beyond three blocks deal damage; player hits deal two health. Death automatically respawns at the center with full health/hunger and no meat.
 
-## Deployment
+## Architecture And Trust
 
-### Deploy to Heroku
+Rendering, collision physics, fall damage, hunger, starvation and animal movement run on PCs. The server performs one bounded world initialization when the first player connects, not a simulation loop. The first connected client is animal host and sends positions at 5 Hz; others interpolate. On disconnect the server elects the next connected client and sends its latest animal snapshot. An idle socket times out after 45 seconds. Background browser throttling can temporarily slow animals until the host resumes or disconnects.
 
-1. Install Heroku CLI:
-```bash
-npm install -g heroku
-```
+The server coordinates animal health/death, single-winner meat pickup, proximity checks, PvP damage events, blocks and snapshots. Animal state updates cannot recreate dead animals or alter health. Reconnect discards old scene objects and loads the complete authoritative snapshot, including an empty world; each connection starts a new player life. World, animal deaths and uncollected drops survive disconnects, but not a server restart. Inventory and survival are local and reset on reconnect. There are twelve animals per server lifetime; no automatic breeding/respawning.
 
-2. Login to Heroku:
-```bash
-heroku login
-```
+This is a trusted-friends prototype, not an anti-cheat server. Clients can spoof their positions, ignore health damage or alter inventory, and the elected host can cheat animal movement within bounds. Server proximity checks use reported positions, not authoritative physics; server-side wall/line-of-sight validation is not implemented. The normal client raycast prevents hitting through blocks. Do not expose this as a competitive public server without authentication, abuse controls and an authoritative redesign.
 
-3. Create a new Heroku app:
-```bash
-heroku create your-minecraft-game
-```
+## Low-Resource Deployment
 
-4. Deploy:
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git push heroku main
-```
+For a reported 0.1 CPU / 512 MB machine, begin with two to four friends. Eight connections is a hard room limit, not a performance guarantee. No load benchmark on that hardware has been performed. Use a single Node process and single instance; there is no shared storage or multi-instance synchronization.
 
-5. Open your app:
-```bash
-heroku open
-```
+- Install with `npm ci` when using the lockfile; start with `npm start`.
+- Set `PORT` in the hosting platform or shell (default 3000); `.env` files are not automatically loaded.
+- Configure HTTPS and WebSocket upgrade forwarding in your reverse proxy; the browser selects WSS automatically on HTTPS. Keep proxy idle timeout above 45 seconds.
+- Render/Railway-style services: build command `npm ci`, start command `npm start`. The included Procfile also runs the Node server.
+- Player updates are 10 Hz; animal updates are 5 Hz. Server messages are event-driven, with no periodic physics/survival/animal tick.
+- Inbound frames are limited to 32 KiB, each connection to 40 messages/second, and outgoing backlog to 256 KiB before disconnect. Compression is disabled to save CPU. Initial snapshots are larger than the inbound limit but bounded by the world.
+- Block coordinates are bounded to 32 x 49 x 32; animals and drops cannot grow beyond the initial twelve. Only explicitly allowed frontend files are served.
+- Block geometry/materials are shared. Fully enclosed blocks are hidden and neighboring visibility is refreshed after edits. Shadows are disabled, pixel ratio is capped at 1.5, and Three.js performs frustum culling. This still uses individual block meshes, not chunk meshing or instancing.
 
-### Deploy to Railway
+## Verification
 
-1. Install Railway CLI:
-```bash
-npm install -g @railway/cli
-```
-
-2. Login to Railway:
-```bash
-railway login
-```
-
-3. Initialize and deploy:
-```bash
-railway init
-railway up
-```
-
-### Deploy to Render
-
-1. Create a new Web Service on [Render](https://render.com)
-2. Connect your Git repository
-3. Use the following settings:
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-4. Deploy
-
-### Deploy to DigitalOcean App Platform
-
-1. Create a new App on [DigitalOcean](https://cloud.digitalocean.com/apps)
-2. Connect your Git repository
-3. DigitalOcean will auto-detect the Node.js app
-4. Deploy
-
-### Deploy to AWS EC2
-
-1. Launch an EC2 instance (Ubuntu recommended)
-2. SSH into your instance
-3. Install Node.js:
-```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-4. Clone your repository and install dependencies:
-```bash
-git clone <your-repo-url>
-cd minecraft-multiplayer
-npm install
-```
-
-5. Install PM2 to keep the server running:
-```bash
-sudo npm install -g pm2
-pm2 start server.js
-pm2 startup
-pm2 save
-```
-
-6. Configure your security group to allow traffic on port 3000
-
-## Environment Variables
-
-The server uses the following environment variables:
-
-- `PORT` - Server port (default: 3000)
-
-Set these in your deployment platform or create a `.env` file for local development.
-
-## File Structure
-
-```
-minecraft-multiplayer/
-├── server.js          # Node.js WebSocket server
-├── game.js            # Client-side game logic
-├── index.html         # Main HTML page
-├── package.json       # Dependencies and scripts
-├── Procfile          # Heroku deployment config
-└── README.md         # This file
-```
-
-## Technical Details
-
-- **Frontend**: Three.js for 3D rendering, WebSocket for real-time communication
-- **Backend**: Node.js with Express and ws (WebSocket library)
-- **World Size**: 32x32 blocks with dynamic height
-- **Synchronization**: 20 updates per second for player positions
-- **Physics**: Custom collision detection and gravity system
-
-## Troubleshooting
-
-### WebSocket connection fails
-- Ensure the server is running
-- Check that firewalls allow WebSocket connections
-- For HTTPS sites, ensure WSS (secure WebSocket) is used
-
-### Players not seeing each other
-- Verify both clients are connected to the same server
-- Check browser console for connection errors
-
-### Poor performance
-- Reduce render distance in game.js (RENDER_DISTANCE constant)
-- Lower shadow quality or disable shadows
-- Use fewer players simultaneously
-
-## License
-
-MIT
+`npm test` runs a real server with two WebSocket clients, then reconnects a replacement client. It covers identical initialization, host-only animal updates, PvP, three-hit animal death, single-winner pickup, block edits, host handoff, snapshot recovery and private-file HTTP denial. `npm run check` syntax-checks JavaScript. These are protocol tests, not automated WebGL or pointer-lock tests; visually check movement, fall landings, icons and clicking in two real browser windows before deployment.

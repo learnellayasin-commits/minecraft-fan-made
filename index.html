@@ -60,6 +60,9 @@
             text-align: center;
             font-size: 16px;
         }
+        #survival { position:absolute; bottom:18px; left:18px; right:18px; width:fit-content; max-width:calc(100% - 52px); color:white; background:#0009; padding:8px; font-family:monospace; pointer-events:none; }
+        .inventory {display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}.slot{border:2px solid #aaa;background:#333;padding:8px;min-width:42px;text-align:center}.selected{border-color:#ffda62;background:#62552d}
+        #status,#notice{position:absolute;color:white;background:#0009;padding:6px;right:10px;top:10px}#notice{top:45px}
     </style>
 </head>
 <body>
@@ -68,13 +71,16 @@
         <div>WASD - Move</div>
         <div>Space - Jump</div>
         <div>Mouse - Look around</div>
-        <div>Left Click - Break block</div>
+        <div>Left Click - Hit animal/player or break block</div>
+        <div>E - Eat meat; walk near meat to pick up</div>
         <div>Right Click - Place block</div>
         <div>1-5 - Select block type</div>
     </div>
     <div id="instructions">
         Click to start playing
     </div>
+    <div id="survival">❤❤❤❤❤❤❤❤❤❤ &nbsp; 🍗🍗🍗🍗🍗🍗🍗🍗🍗🍗<br>Inventory: [ meat: 0 ] [ grass ] [ dirt ]</div>
+    <div id="status">Connecting...</div><div id="notice" role="status"></div>
     
     <script type="importmap">
     {

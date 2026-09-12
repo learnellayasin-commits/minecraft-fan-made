@@ -20,6 +20,7 @@ const game = {
     playerId: null,
     otherPlayers: new Map(),
     lastPositionUpdate: 0
+    ,health: 20, hunger: 20, meat: 0, animals: new Map(), animalHost: null
 };
 
 // Block types with colors
@@ -30,6 +31,49 @@ const blockTypes = {
     wood: 0x6d4c41,
     sand: 0xfdd835
 };
+const meatDrops = new Map();
+const meatGeometry = new THREE.BoxGeometry(.35,.35,.35);
+const meatMaterial = new THREE.MeshLambertMaterial({color: 0xb33a2c});
+function updateHud() {
+    const icon=(pattern,color,full)=>`<svg viewBox="0 0 8 8" width="22" height="22" shape-rendering="crispEdges">${pattern.flatMap((row,y)=>[...row].map((v,x)=>v==='1'?`<rect x="${x}" y="${y}" width="1" height="1" fill="${full?color:'#443c39'}"/>`:'')).join('')}</svg>`;
+    const heart=['0110110','1111111','1111111','0111110','0011100','0001000'];
+    const leg=['00111000','01111100','01111100','00111000','00001100','00000110','00000111','00000010'];
+    const html=`<div aria-label="Health ${Math.ceil(game.health)}">${Array.from({length:10},(_,i)=>icon(heart,'#f03545',game.health>i*2)).join('')}</div><div aria-label="Hunger ${Math.ceil(game.hunger)}">${Array.from({length:10},(_,i)=>icon(leg,'#db984e',game.hunger>i*2)).join('')}</div><div class="inventory">${Object.keys(blockTypes).map((t,i)=>`<span class="slot ${game.player.selectedBlock===t?'selected':''}">${i+1} ${t}</span>`).join('')}<span class="slot">Meat: ${game.meat}<br>E: eat</span></div>`;
+    const el=document.getElementById('survival');if(el.innerHTML!==html)el.innerHTML=html;
+}
+const sharedGeometry=new THREE.BoxGeometry(1,1,1);
+const sharedMaterials=Object.fromEntries(Object.entries(blockTypes).map(([t,color])=>[t,new THREE.MeshLambertMaterial({color})]));
+const animalMaterial=new THREE.MeshLambertMaterial({color:0xbe9872});
+let ready=false, animalClock=0, pickupClock=0, peak=0, lastHit=0;
+function send(m){if(ready&&game.ws.readyState===WebSocket.OPEN)game.ws.send(JSON.stringify(m));}
+function surface(x,z){for(let y=48;y>=0;y--)if(game.world.has(`${Math.round(x)},${y},${Math.round(z)}`))return y+.5;return -.5;}
+function respawn(){game.camera.position.set(16,surface(16,16)+1.82,16);game.player.velocity.set(0,0,0);game.player.onGround=false;peak=game.camera.position.y;game.health=20;game.hunger=20;game.meat=0;}
+function damage(amount){game.health=Math.max(0,game.health-amount);if(game.health<=0){respawn();document.getElementById('notice').textContent='You died. Respawned; meat lost.';}}
+function syncAnimals(list){
+    const ids=new Set(list.map(a=>a.id));for(const [id,a]of game.animals)if(!ids.has(id)){game.scene.remove(a.model);game.animals.delete(id);}
+    for(const data of list){let a=game.animals.get(data.id);if(!a){const model=new THREE.Group();
+        for(const [x,y,z,sx,sy,sz]of [[0,.55,0,.8,.6,1.1],[0,.85,.65,.5,.5,.5],[-.27,.15,-.4,.18,.4,.18],[.27,.15,-.4,.18,.4,.18],[-.27,.15,.4,.18,.4,.18],[.27,.15,.4,.18,.4,.18]]){const m=new THREE.Mesh(sharedGeometry,animalMaterial);m.position.set(x,y,z);m.scale.set(sx,sy,sz);model.add(m);}
+        model.userData.animal=data.id;game.scene.add(model);a={model,angle:Math.random()*6,turn:0};game.animals.set(data.id,a);model.position.set(data.x,data.y,data.z);
+    }Object.assign(a,data);}
+}
+function survival(delta){
+    if(!ready)return;
+    game.hunger=Math.max(0,game.hunger-delta/15);if(game.hunger===0)damage(delta/2);
+    animalClock+=delta;pickupClock+=delta;
+    for(const a of game.animals.values()){
+        if(game.animalHost===game.playerId){a.turn-=delta;if(a.turn<=0){a.angle+=(Math.random()-.5)*2;a.turn=3;}
+            const x=a.x+Math.sin(a.angle)*delta*.6,z=a.z+Math.cos(a.angle)*delta*.6;
+            if(x<1||x>30||z<1||z>30||Math.abs(surface(x,z)-a.y)>1.1)a.angle+=Math.PI;else{a.x=x;a.z=z;}
+            a.y=THREE.MathUtils.lerp(a.y,surface(a.x,a.z),Math.min(1,delta*10));
+        }
+        const target=new THREE.Vector3(a.x,a.y,a.z),d=target.clone().sub(a.model.position);if(d.lengthSq()>.00001)a.model.rotation.y=Math.atan2(d.x,d.z);a.model.position.lerp(target,Math.min(1,delta*12));
+    }
+    if(animalClock>=.2){animalClock=0;if(game.animalHost===game.playerId)send({type:'animalState',animals:Array.from(game.animals.values(),a=>({id:a.id,x:a.x,y:a.y,z:a.z}))});}
+    for(const [id,m]of meatDrops){m.position.y=m.userData.base+Math.sin(performance.now()/400)*.12;m.rotation.y+=delta;if(pickupClock>=.5&&m.position.distanceTo(game.camera.position)<2.5){document.getElementById('notice').textContent='Meat';send({type:'meatPickup',id});break;}}
+    if(pickupClock>=.5)pickupClock=0;
+    document.getElementById('status').textContent=`Connected: ${game.otherPlayers.size+1}/8 | ${game.animalHost===game.playerId?'Animal host':'Animal guest'}`;
+}
+function cull(x,y,z){for(const [dx,dy,dz]of [[0,0,0],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){const a=x+dx,b=y+dy,c=z+dz,m=game.world.get(`${a},${b},${c}`);if(m)m.visible=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([i,j,k])=>!game.world.has(`${a+i},${b+j},${c+k}`));}}
 
 // World settings
 const BLOCK_SIZE = 1;
@@ -57,7 +101,8 @@ function init() {
     // Create renderer
     game.renderer = new THREE.WebGLRenderer({ antialias: true });
     game.renderer.setSize(window.innerWidth, window.innerHeight);
-    game.renderer.shadowMap.enabled = true;
+    game.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+    game.renderer.shadowMap.enabled = false;
     game.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(game.renderer.domElement);
 
@@ -82,7 +127,7 @@ function init() {
     
     const instructions = document.getElementById('instructions');
     instructions.addEventListener('click', () => {
-        game.controls.lock();
+        if(ready)game.controls.lock();
     });
 
     game.controls.addEventListener('lock', () => {
@@ -169,8 +214,9 @@ function generateTerrain() {
 function addBlock(x, y, z, type) {
     const key = `${x},${y},${z}`;
     
-    const geometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-    const material = new THREE.MeshLambertMaterial({ color: blockTypes[type] });
+    if(game.world.has(key))game.scene.remove(game.world.get(key));
+    const geometry = sharedGeometry;
+    const material = sharedMaterials[type];
     const mesh = new THREE.Mesh(geometry, material);
     
     mesh.position.set(x * BLOCK_SIZE, y * BLOCK_SIZE, z * BLOCK_SIZE);
@@ -180,6 +226,7 @@ function addBlock(x, y, z, type) {
     
     game.scene.add(mesh);
     game.world.set(key, mesh);
+    cull(x,y,z);
 }
 
 // Remove a block from the world
@@ -190,6 +237,7 @@ function removeBlock(x, y, z) {
     if (block) {
         game.scene.remove(block);
         game.world.delete(key);
+        cull(x,y,z);
         return true;
     }
     return false;
@@ -197,13 +245,14 @@ function removeBlock(x, y, z) {
 
 // Check if a block exists at position
 function getBlock(x, y, z) {
-    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
     return game.world.get(key);
 }
 
 // Handle keyboard input
 function onKeyDown(event) {
     game.keys[event.code] = true;
+    if (event.code === 'KeyE' && !event.repeat && ready && game.controls.isLocked && game.meat > 0 && game.hunger < 20) { game.meat--; game.hunger=Math.min(20,game.hunger+6); updateHud(); }
     
     // Block selection (1-5 keys)
     if (event.code === 'Digit1') game.player.selectedBlock = 'grass';
@@ -219,18 +268,23 @@ function onKeyUp(event) {
 
 // Handle mouse clicks
 function onMouseDown(event) {
-    if (!game.controls.isLocked) return;
+    if (!game.controls.isLocked || !ready || performance.now()-lastHit<450) return;
+    lastHit=performance.now();
 
     game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
-    const intersects = game.raycaster.intersectObjects(Array.from(game.world.values()));
+    game.raycaster.far=5;
+    const intersects = game.raycaster.intersectObjects([...Array.from(game.world.values()).filter(m=>m.visible),...Array.from(game.animals.values(),a=>a.model),...Array.from(game.otherPlayers.values(),p=>p.model)],true);
 
     if (intersects.length > 0) {
         const intersect = intersects[0];
+        let root=intersect.object;while(root.parent!==game.scene)root=root.parent;
+        if(root.userData.animal){if(event.button===0)send({type:'animalHit',id:root.userData.animal});return;}
+        if(root.userData.player){if(event.button===0)send({type:'playerHit',id:root.userData.player});return;}
         const blockPos = intersect.object.position.clone().divideScalar(BLOCK_SIZE);
 
         // Left click - remove block
         if (event.button === 0) {
-            if (removeBlock(blockPos.x, blockPos.y, blockPos.z)) {
+            if (game.world.has(`${blockPos.x},${blockPos.y},${blockPos.z}`)) {
                 // Send to server
                 if (game.ws && game.ws.readyState === WebSocket.OPEN) {
                     game.ws.send(JSON.stringify({
@@ -252,7 +306,7 @@ function onMouseDown(event) {
             if (!(newPos.x === playerPos.x && 
                   (newPos.y === playerPos.y || newPos.y === playerPos.y - 1) && 
                   newPos.z === playerPos.z)) {
-                addBlock(newPos.x, newPos.y, newPos.z, game.player.selectedBlock);
+                // Apply only the server acknowledgement, so rejected edits cannot diverge.
                 
                 // Send to server
                 if (game.ws && game.ws.readyState === WebSocket.OPEN) {
@@ -271,7 +325,7 @@ function onMouseDown(event) {
 
 // Update player movement
 function updatePlayer(delta) {
-    if (!game.controls.isLocked) return;
+    if (!ready) return;
 
     const speed = 10;
     const jumpSpeed = 8;
@@ -283,10 +337,10 @@ function updatePlayer(delta) {
     // Movement
     const moveDirection = new THREE.Vector3();
     
-    if (game.keys['KeyW']) moveDirection.z -= 1;
-    if (game.keys['KeyS']) moveDirection.z += 1;
-    if (game.keys['KeyA']) moveDirection.x -= 1;
-    if (game.keys['KeyD']) moveDirection.x += 1;
+    if (game.controls.isLocked && game.keys['KeyW']) moveDirection.z -= 1;
+    if (game.controls.isLocked && game.keys['KeyS']) moveDirection.z += 1;
+    if (game.controls.isLocked && game.keys['KeyA']) moveDirection.x -= 1;
+    if (game.controls.isLocked && game.keys['KeyD']) moveDirection.x += 1;
 
     moveDirection.normalize();
     moveDirection.multiplyScalar(speed * delta);
@@ -311,23 +365,26 @@ function updatePlayer(delta) {
     }
 
     // Jump
-    if (game.keys['Space'] && game.player.onGround) {
+    if (game.controls.isLocked && game.keys['Space'] && game.player.onGround) {
         game.player.velocity.y = jumpSpeed;
         game.player.onGround = false;
     }
 
     // Apply vertical velocity
     const verticalMovement = game.player.velocity.y * delta;
+    peak=Math.max(peak,game.camera.position.y);
     const newVerticalPos = game.camera.position.clone();
     newVerticalPos.y += verticalMovement;
 
     // Check ground collision
     if (checkCollision(newVerticalPos)) {
+        if(game.player.velocity.y<0){if(!game.player.onGround)damage(Math.max(0,Math.floor(peak-game.camera.position.y-3)));game.player.onGround=true;peak=game.camera.position.y;}
         game.player.velocity.y = 0;
-        game.player.onGround = true;
     } else {
+        game.player.onGround=false;
         game.camera.position.y += verticalMovement;
     }
+    if(game.camera.position.y<-20)damage(20);
 
     // Keep player in bounds
     game.camera.position.x = Math.max(0, Math.min(WORLD_WIDTH * BLOCK_SIZE, game.camera.position.x));
@@ -335,7 +392,7 @@ function updatePlayer(delta) {
     
     // Send position to server periodically
     const now = Date.now();
-    if (now - game.lastPositionUpdate > 50) { // Update 20 times per second
+    if (now - game.lastPositionUpdate > 100) {
         game.lastPositionUpdate = now;
         if (game.ws && game.ws.readyState === WebSocket.OPEN) {
             game.ws.send(JSON.stringify({
@@ -391,9 +448,10 @@ const clock = new THREE.Clock();
 function animate() {
     requestAnimationFrame(animate);
     
-    const delta = clock.getDelta();
-    updatePlayer(delta);
+    const delta = Math.min(clock.getDelta(),.1);
+    for(let remaining=delta;remaining>0;remaining-=1/120)updatePlayer(Math.min(remaining,1/120));
     updateOtherPlayers();
+    survival(delta);updateHud();
     
     game.renderer.render(game.scene, game.camera);
 }
@@ -419,6 +477,7 @@ function connectToServer() {
     };
     
     game.ws.onclose = () => {
+        ready=false;game.animalHost=null;game.keys={};game.controls.unlock();document.getElementById('status').textContent='Disconnected. Reconnecting...';
         console.log('Disconnected from server');
         setTimeout(connectToServer, 3000); // Reconnect after 3 seconds
     };
@@ -428,23 +487,32 @@ function connectToServer() {
 function handleServerMessage(message) {
     switch (message.type) {
         case 'init':
+            for(const m of game.world.values())game.scene.remove(m);game.world.clear();
+            for(const id of Array.from(game.otherPlayers.keys()))removeOtherPlayer(id);
+            for(const m of meatDrops.values())game.scene.remove(m);meatDrops.clear();
+            syncAnimals([]);
             game.playerId = message.playerId;
+            game.animalHost = message.animalHost;
+            (message.meat || []).forEach(addMeat);
             
             // Load world from server
-            if (message.world && message.world.length > 0) {
+            if (message.world) {
                 message.world.forEach(block => {
                     addBlock(block.x, block.y, block.z, block.type);
                 });
-            } else {
-                // Generate terrain if first player
-                generateTerrain();
             }
+            syncAnimals(message.animals);ready=true;respawn();
             
             // Add other players
             message.players.forEach(player => {
                 addOtherPlayer(player);
             });
             break;
+        case 'animalHost':game.animalHost=message.playerId;syncAnimals(message.animals);break;
+        case 'animalState':syncAnimals(message.animals);break;
+        case 'damage':damage(message.amount);break;
+        case 'meatDropped': addMeat(message.meat); break;
+        case 'meatPicked': { const m=meatDrops.get(message.id); if(m){game.scene.remove(m);meatDrops.delete(message.id);} if(message.playerId===game.playerId){game.meat++;updateHud();} break; }
             
         case 'playerJoined':
             addOtherPlayer(message.player);
@@ -459,18 +527,19 @@ function handleServerMessage(message) {
             break;
             
         case 'blockPlaced':
-            if (message.playerId !== game.playerId) {
+            {
                 addBlock(message.x, message.y, message.z, message.blockType);
             }
             break;
             
         case 'blockRemoved':
-            if (message.playerId !== game.playerId) {
+            {
                 removeBlock(message.x, message.y, message.z);
             }
             break;
     }
 }
+function addMeat(data) { if(meatDrops.has(data.id)) return; const m=new THREE.Mesh(meatGeometry,meatMaterial);m.userData.base=data.y; m.position.set(data.x,data.y,data.z); game.scene.add(m); meatDrops.set(data.id,m); }
 
 // Create a player model (simple cube representation)
 function createPlayerModel() {
@@ -519,6 +588,7 @@ function addOtherPlayer(playerData) {
     if (game.otherPlayers.has(playerData.id)) return;
     
     const playerModel = createPlayerModel();
+    playerModel.userData.player=playerData.id;
     playerModel.position.set(
         playerData.position.x,
         playerData.position.y - 1.6, // Adjust for player height
@@ -539,6 +609,7 @@ function removeOtherPlayer(playerId) {
     const player = game.otherPlayers.get(playerId);
     if (player) {
         game.scene.remove(player.model);
+        player.model.traverse(m=>{if(m.geometry)m.geometry.dispose();if(m.material){if(m.material.map)m.material.map.dispose();m.material.dispose();}});
         game.otherPlayers.delete(playerId);
     }
 }
@@ -569,6 +640,7 @@ function updateOtherPlayers() {
 
 // Prevent right-click context menu
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('blur',()=>game.keys={});
 
 // Start the game
 init();

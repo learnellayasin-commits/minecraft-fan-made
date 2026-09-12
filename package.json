@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test integration.test.js",
+    "check": "node --check server.js && node --check game.js && node --check integration.test.js"
   },
   "keywords": ["minecraft", "multiplayer", "game", "3d"],
   "author": "",
