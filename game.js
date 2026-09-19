@@ -121,6 +121,18 @@ const textures = {
         return [Math.floor(190 * v), Math.floor(138 * v), Math.floor(110 * v)];
     }).texture,
 
+    // Plain skin (sides/bottom of the head - NO face on them)
+    steveSkin: createNoiseCanvas(16, 16, () => {
+        const v = rand(0.95, 1.05);
+        return [Math.floor(190 * v), Math.floor(138 * v), Math.floor(110 * v)];
+    }).texture,
+
+    // Hair (top/back of the head)
+    steveHair: createNoiseCanvas(16, 16, () => {
+        const v = rand(0.9, 1.1);
+        return [Math.floor(70 * v), Math.floor(45 * v), Math.floor(25 * v)];
+    }).texture,
+
     steveShirt: createNoiseCanvas(16, 16, () => {
         const v = rand(0.9, 1.1);
         return [0, Math.floor(160 * v), Math.floor(175 * v)];
@@ -198,6 +210,27 @@ const textures = {
 
 // Multi-materials for Minecraft blocks
 const sharedGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+// Build a 6-material head so the FACE only appears on the front (+Z) side.
+// BoxGeometry material order is [+X, -X, +Y, -Y, +Z, -Z].
+const headMaterialCache = new Map();
+function headMaterials(faceTexture, sideTexture, topTexture = sideTexture) {
+    const key = `${faceTexture.uuid}|${sideTexture.uuid}|${topTexture.uuid}`;
+    if (headMaterialCache.has(key)) return headMaterialCache.get(key);
+
+    const side = new THREE.MeshLambertMaterial({ map: sideTexture });
+    const top = new THREE.MeshLambertMaterial({ map: topTexture });
+    const mats = [
+        side,                                                  // +X right
+        side,                                                  // -X left
+        top,                                                   // +Y top
+        side,                                                  // -Y bottom
+        new THREE.MeshLambertMaterial({ map: faceTexture }),   // +Z FRONT (the only face)
+        side                                                   // -Z back
+    ];
+    headMaterialCache.set(key, mats);
+    return mats;
+}
 
 const blockMaterials = {
     grass: [
@@ -394,10 +427,16 @@ function playSound(type, material = 'stone') {
 // 3. GAME STATE & CONSTANTS
 // ==========================================
 const BLOCK_SIZE = 1;
+const WORLD_SIZE = 128; // Must match server.js exactly for deterministic terrain
 const WORLD_WIDTH = 128; // HUGE EXPANDED WORLD!
 const WORLD_DEPTH = 128;
 const WORLD_HEIGHT = 24;
 const RENDER_DISTANCE = 96;
+
+// Deterministic terrain generation - MUST match server.js byte-for-byte
+function terrainHeight(x, z) {
+    return Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x + z) / 16) * 3);
+}
 
 const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand', 'leaves', 'planks', 'craftingTable', 'stick', 'meat'];
 
@@ -530,6 +569,7 @@ const game = {
     renderer: null,
     controls: null,
     world: new Map(),
+    blockTypes: new Map(),
     player: {
         velocity: new THREE.Vector3(),
         onGround: false,
@@ -1051,9 +1091,7 @@ function updateSelectionOutline() {
 
     game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
     game.raycaster.far = 5;
-    const intersects = game.raycaster.intersectObjects(
-        Array.from(game.world.values()).filter(m => m.visible)
-    );
+    const intersects = game.raycaster.intersectObjects(getWorldMeshes());
 
     if (intersects.length > 0) {
         const block = intersects[0].object;
@@ -1194,54 +1232,146 @@ function toggleGamemode() {
 // ==========================================
 // 9. WORLD & BLOCK MANAGEMENT
 // ==========================================
+// PERFORMANCE: block data lives in game.blockTypes (cheap strings), while
+// game.world holds meshes ONLY for exposed blocks. Interior blocks are never
+// turned into THREE.Mesh objects, cutting scene objects from ~175k to ~25k.
+const NEIGHBORS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+let worldMeshList = [];
+let worldMeshesDirty = true;
+
+function getWorldMeshes() {
+    if (worldMeshesDirty) {
+        worldMeshList = Array.from(game.world.values()).filter(m => m.visible);
+        worldMeshesDirty = false;
+    }
+    return worldMeshList;
+}
+
+function blockMesh(x, y, z, type) {
+    const mesh = new THREE.Mesh(sharedGeometry, blockMaterials[type] || blockMaterials.dirt);
+    mesh.position.set(x * BLOCK_SIZE, y * BLOCK_SIZE, z * BLOCK_SIZE);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    mesh.userData = { blockType: type };
+    return mesh;
+}
+
+function isExposed(x, y, z) {
+    return NEIGHBORS.some(([dx, dy, dz]) => !game.blockTypes.has(`${x+dx},${y+dy},${z+dz}`));
+}
+
+// Create/keep the mesh only when the block is exposed; remove it when enclosed.
+function refreshBlockMesh(x, y, z) {
+    const key = `${x},${y},${z}`;
+    const type = game.blockTypes.get(key);
+    const mesh = game.world.get(key);
+    if (type && isExposed(x, y, z)) {
+        if (!mesh) {
+            const m = blockMesh(x, y, z, type);
+            game.scene.add(m);
+            game.world.set(key, m);
+            worldMeshesDirty = true;
+        }
+    } else if (mesh) {
+        game.scene.remove(mesh);
+        game.world.delete(key);
+        worldMeshesDirty = true;
+    }
+}
+
 function addBlock(x, y, z, type) {
     const key = `${x},${y},${z}`;
-    if (game.world.has(key)) game.scene.remove(game.world.get(key));
-
-    const mat = blockMaterials[type] || blockMaterials.dirt;
-    const mesh = new THREE.Mesh(sharedGeometry, mat);
-    mesh.position.set(x * BLOCK_SIZE, y * BLOCK_SIZE, z * BLOCK_SIZE);
-    mesh.userData = { blockType: type };
-
-    game.scene.add(mesh);
-    game.world.set(key, mesh);
-    cull(x, y, z);
+    game.blockTypes.set(key, type);
+    refreshBlockMesh(x, y, z);
+    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
 }
 
-function removeBlock(x, y, z) {
+function removeBlock(x, y, z, collect) {
     const key = `${x},${y},${z}`;
-    const block = game.world.get(key);
-    if (block) {
-        playSound('break', block.userData.blockType);
-        // Add collected block item into player's inventory
-        addToInventory(block.userData.blockType, 1);
-        game.scene.remove(block);
+    const type = game.blockTypes.get(key);
+    if (!type) return false;
+    const mesh = game.world.get(key);
+    if (mesh) {
+        if (collect) {
+            playSound('break', type);
+            addToInventory(type, 1);
+        }
+        game.scene.remove(mesh);
         game.world.delete(key);
-        cull(x, y, z);
-        return true;
+        worldMeshesDirty = true;
     }
-    return false;
+    game.blockTypes.delete(key);
+    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
+    return true;
 }
 
-function cull(x, y, z) {
-    for (const [dx, dy, dz] of [[0,0,0],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
-        const a = x + dx, b = y + dy, c = z + dz;
-        const m = game.world.get(`${a},${b},${c}`);
-        if (m) {
-            m.visible = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([i,j,k]) => !game.world.has(`${a+i},${b+j},${c+k}`));
-        }
-    }
+// Replays a server edit without side effects (no sound, no inventory pickup)
+function applyEdit(x, y, z, type) {
+    const key = `${x},${y},${z}`;
+    if (type === null || type === undefined) game.blockTypes.delete(key);
+    else game.blockTypes.set(key, type);
+    refreshBlockMesh(x, y, z);
+    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
 }
 
 function getBlock(x, y, z) {
-    return game.world.get(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`);
+    return game.blockTypes.get(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`);
 }
 
 function surface(x, z) {
     for (let y = 48; y >= 0; y--) {
-        if (game.world.has(`${Math.round(x)},${y},${Math.round(z)}`)) return y + 0.5;
+        if (game.blockTypes.has(`${Math.round(x)},${y},${Math.round(z)}`)) return y + 0.5;
     }
     return -0.5;
+}
+
+// Deterministic terrain + oak trees. MUST mirror the original server-side
+// generation exactly so every client builds the identical base world.
+function generateTerrain(size) {
+    // Ground columns
+    for (let x = 0; x < size; x++) for (let z = 0; z < size; z++) {
+        const height = terrainHeight(x, z);
+        for (let y = 0; y <= height; y++) {
+            game.blockTypes.set(`${x},${y},${z}`, y === height ? 'grass' : y >= height - 3 ? 'dirt' : 'stone');
+        }
+    }
+
+    // Procedural oak trees on an 8x8 jittered grid
+    for (let x = 4; x < size - 4; x += 8) {
+        for (let z = 4; z < size - 4; z += 8) {
+            const rx = x + Math.floor(Math.sin(x * 12 + z) * 3);
+            const rz = z + Math.floor(Math.cos(z * 12 + x) * 3);
+            if (rx < 3 || rx >= size - 3 || rz < 3 || rz >= size - 3) continue;
+
+            const groundHeight = terrainHeight(rx, rz);
+            const trunkH = 4;
+
+            for (let ty = 1; ty <= trunkH; ty++) {
+                game.blockTypes.set(`${rx},${groundHeight + ty},${rz}`, 'wood');
+            }
+            for (let lx = -2; lx <= 2; lx++) {
+                for (let lz = -2; lz <= 2; lz++) {
+                    for (let ly = trunkH - 1; ly <= trunkH + 1; ly++) {
+                        if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === trunkH + 1) continue;
+                        if (lx === 0 && lz === 0 && ly <= trunkH) continue; // trunk occupies center
+                        const key = `${rx + lx},${groundHeight + ly},${rz + lz}`;
+                        if (!game.blockTypes.has(key)) game.blockTypes.set(key, 'leaves');
+                    }
+                }
+            }
+        }
+    }
+
+    // Mesh ONLY the exposed blocks (the big performance win)
+    for (const [key, type] of game.blockTypes) {
+        const [x, y, z] = key.split(',').map(Number);
+        if (isExposed(x, y, z)) {
+            const m = blockMesh(x, y, z, type);
+            game.scene.add(m);
+            game.world.set(key, m);
+        }
+    }
+    worldMeshesDirty = true;
 }
 
 // Calculate mining hardness based on block type and depth (y)
@@ -1273,7 +1403,8 @@ function createMobModel(type) {
         body.scale.set(0.9, 0.65, 1.2);
         mob.add(body);
 
-        const head = new THREE.Mesh(sharedGeometry, pigMat);
+        // Face only on the front (+Z); other sides are plain pig skin
+        const head = new THREE.Mesh(sharedGeometry, headMaterials(textures.pigSnout, textures.pigSkin));
         head.position.set(0, 0.95, 0.7);
         head.scale.set(0.65, 0.65, 0.65);
         mob.add(head);
@@ -1291,12 +1422,12 @@ function createMobModel(type) {
         });
 
     } else if (type === 'zombie') {
-        const headMat = new THREE.MeshLambertMaterial({ map: textures.zombieFace });
         const skinMat = new THREE.MeshLambertMaterial({ map: textures.zombieSkin });
         const shirtMat = new THREE.MeshLambertMaterial({ map: textures.steveShirt });
         const pantsMat = new THREE.MeshLambertMaterial({ map: textures.stevePants });
 
-        const head = new THREE.Mesh(sharedGeometry, headMat);
+        // Face only on the front (+Z); other sides are plain zombie skin
+        const head = new THREE.Mesh(sharedGeometry, headMaterials(textures.zombieFace, textures.zombieSkin));
         head.position.set(0, 1.45, 0);
         head.scale.set(0.5, 0.5, 0.5);
         mob.add(head);
@@ -1328,10 +1459,10 @@ function createMobModel(type) {
         mob.add(rightLeg);
 
     } else if (type === 'skeleton') {
-        const headMat = new THREE.MeshLambertMaterial({ map: textures.skeletonFace });
         const boneMat = new THREE.MeshLambertMaterial({ map: textures.skeletonBone });
 
-        const head = new THREE.Mesh(sharedGeometry, headMat);
+        // Skull face only on the front (+Z)
+        const head = new THREE.Mesh(sharedGeometry, headMaterials(textures.skeletonFace, textures.skeletonBone));
         head.position.set(0, 1.45, 0);
         head.scale.set(0.5, 0.5, 0.5);
         mob.add(head);
@@ -1364,10 +1495,10 @@ function createMobModel(type) {
         mob.add(rightLeg);
 
     } else if (type === 'creeper') {
-        const headMat = new THREE.MeshLambertMaterial({ map: textures.creeperFace });
         const bodyMat = new THREE.MeshLambertMaterial({ map: textures.creeperBody });
 
-        const head = new THREE.Mesh(sharedGeometry, headMat);
+        // Creeper grimace only on the front (+Z)
+        const head = new THREE.Mesh(sharedGeometry, headMaterials(textures.creeperFace, textures.creeperBody));
         head.position.set(0, 1.25, 0);
         head.scale.set(0.5, 0.5, 0.5);
         mob.add(head);
@@ -1418,11 +1549,11 @@ function syncAnimals(list) {
 function createSteveModel(pvpEnabled) {
     const group = new THREE.Group();
 
-    const headMat = new THREE.MeshLambertMaterial({ map: textures.steveFace });
     const shirtMat = new THREE.MeshLambertMaterial({ map: textures.steveShirt });
     const pantsMat = new THREE.MeshLambertMaterial({ map: textures.stevePants });
 
-    const head = new THREE.Mesh(sharedGeometry, headMat);
+    // Face only on the front (+Z); sides are plain skin, top is hair
+    const head = new THREE.Mesh(sharedGeometry, headMaterials(textures.steveFace, textures.steveSkin, textures.steveHair));
     head.position.set(0, 1.35, 0);
     head.scale.set(0.5, 0.5, 0.5);
     group.add(head);
@@ -1765,7 +1896,7 @@ function updateMining(delta) {
     game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
     game.raycaster.far = 5;
 
-    const visibleBlocks = Array.from(game.world.values()).filter(m => m.visible);
+    const visibleBlocks = getWorldMeshes();
     const intersects = game.raycaster.intersectObjects(visibleBlocks, true);
 
     if (intersects.length > 0) {
@@ -1931,13 +2062,31 @@ function onMouseDown(event) {
             }
         }
     } else if (event.button === 2) {
-        // Right Click: Place Block if holding a placeable block in active hotbar slot
+        // Right Click: USE the held item
         const held = playerInventory[selectedHotbarIndex];
-        if (!held || held.type === 'meat' || held.type === 'stick') return;
+        if (!held) return;
+
+        // Usable item: eat meat
+        if (held.type === 'meat') {
+            if (game.hunger < 20) {
+                held.count--;
+                if (held.count <= 0) playerInventory[selectedHotbarIndex] = null;
+                game.hunger = Math.min(20, game.hunger + 6);
+                playSound('eat');
+                showNotice('Ate porkchop (+6 Hunger)');
+                triggerSwing();
+                updateHud();
+                updateHeldItemMesh();
+            } else {
+                showNotice('Hunger is already full!');
+            }
+            return;
+        }
+        if (held.type === 'stick') return; // Not usable or placeable
 
         game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
         game.raycaster.far = 5;
-        const blockIntersects = game.raycaster.intersectObjects(Array.from(game.world.values()).filter(m => m.visible), true);
+        const blockIntersects = game.raycaster.intersectObjects(getWorldMeshes(), true);
 
         if (blockIntersects.length > 0) {
             const intersect = blockIntersects[0];
@@ -2144,6 +2293,8 @@ function handleServerMessage(message) {
         case 'init':
             for (const m of game.world.values()) game.scene.remove(m);
             game.world.clear();
+            game.blockTypes.clear();
+            worldMeshesDirty = true;
             for (const id of Array.from(game.otherPlayers.keys())) removeOtherPlayer(id);
             for (const m of meatDrops.values()) game.scene.remove(m);
             meatDrops.clear();
@@ -2153,9 +2304,10 @@ function handleServerMessage(message) {
             game.animalHost = message.animalHost;
             (message.meat || []).forEach(addMeat);
 
-            if (message.world) {
-                message.world.forEach(b => addBlock(b.x, b.y, b.z, b.type));
-            }
+            // Terrain is generated locally (deterministic), then player edits are replayed on top
+            generateTerrain(message.worldSize || WORLD_SIZE);
+            (message.world || []).forEach(b => applyEdit(b.x, b.y, b.z, b.type));
+
             syncAnimals(message.animals);
             ready = true;
             respawn();
@@ -2223,7 +2375,8 @@ function handleServerMessage(message) {
             break;
 
         case 'blockRemoved':
-            removeBlock(message.x, message.y, message.z);
+            // Only the player who mined collects the block (no inventory dupes)
+            removeBlock(message.x, message.y, message.z, message.playerId === game.playerId);
             break;
     }
 }

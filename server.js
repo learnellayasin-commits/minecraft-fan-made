@@ -17,9 +17,13 @@ const PORT = process.env.PORT || 3000;
 for (const file of ['index.html', 'game.js']) app.get(file === 'index.html' ? '/' : `/${file}`, (req, res) => res.sendFile(join(__dirname, file)));
 
 // Game state
+// The terrain is deterministic and generated identically on every client from
+// WORLD_SIZE, so the server only stores player EDITS (placed/removed blocks).
+// Sending all ~175k terrain blocks was ~7.7 MB per join, which overflowed the
+// socket backlog and disconnected everyone.
 const gameState = {
     players: new Map(),
-    world: new Map(),
+    edits: new Map(),
     worldGenerated: false,
     animals: new Map(),
     animalHost: null,
@@ -29,56 +33,21 @@ const gameState = {
 
 const WORLD_SIZE = 128;
 
+// Must stay byte-for-byte identical to terrainHeight() in game.js
+function terrainHeight(x, z) {
+    return Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x + z) / 16) * 3);
+}
+
 function initializeWorld() {
     if (gameState.worldGenerated) return;
-    for (let x = 0; x < WORLD_SIZE; x++) for (let z = 0; z < WORLD_SIZE; z++) {
-        const height = Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x+z)/16)*3);
-        for (let y = 0; y <= height; y++) {
-            gameState.world.set(`${x},${y},${z}`, {
-                x, y, z,
-                type: y === height ? 'grass' : y >= height - 3 ? 'dirt' : 'stone'
-            });
-        }
-    }
-
-    // Procedural Oak Trees across the 128x128 world
-    for (let x = 4; x < WORLD_SIZE - 4; x += 8) {
-        for (let z = 4; z < WORLD_SIZE - 4; z += 8) {
-            const rx = x + Math.floor(Math.sin(x * 12 + z) * 3);
-            const rz = z + Math.floor(Math.cos(z * 12 + x) * 3);
-            if (rx < 3 || rx >= WORLD_SIZE - 3 || rz < 3 || rz >= WORLD_SIZE - 3) continue;
-
-            const groundHeight = Math.floor(10 + Math.sin(rx / 10) * 5 + Math.cos(rz / 10) * 5 + Math.sin((rx+rz)/16)*3);
-            const trunkH = 4;
-
-            // Wood Trunk
-            for (let ty = 1; ty <= trunkH; ty++) {
-                gameState.world.set(`${rx},${groundHeight + ty},${rz}`, { x: rx, y: groundHeight + ty, z: rz, type: 'wood' });
-            }
-
-            // Leaves Canopy
-            for (let lx = -2; lx <= 2; lx++) {
-                for (let lz = -2; lz <= 2; lz++) {
-                    for (let ly = trunkH - 1; ly <= trunkH + 1; ly++) {
-                        if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === trunkH + 1) continue;
-                        if (lx === 0 && lz === 0 && ly <= trunkH) continue; // Trunk takes center
-                        const k = `${rx + lx},${groundHeight + ly},${rz + lz}`;
-                        if (!gameState.world.has(k)) {
-                            gameState.world.set(k, { x: rx + lx, y: groundHeight + ly, z: rz + lz, type: 'leaves' });
-                        }
-                    }
-                }
-            }
-        }
-    }
     gameState.worldGenerated = true;
-    
+
     // Spawn 24 starting mobs across the huge 128x128 map
     const mobTypes = ['pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'zombie', 'zombie', 'zombie', 'zombie', 'skeleton', 'skeleton', 'skeleton', 'skeleton', 'creeper', 'creeper', 'creeper', 'creeper', 'pig', 'pig', 'zombie', 'skeleton'];
     for (let i = 0; i < 24; i++) {
         const x = 12 + (i * 9) % 108;
         const z = 14 + (i * 13) % 104;
-        const y = Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x+z)/16)*3) + 1;
+        const y = terrainHeight(x, z) + 1;
         const mobType = mobTypes[i];
         gameState.animals.set(`animal${i}`, {
             id: `animal${i}`,
@@ -144,14 +113,14 @@ wss.on('connection', (ws) => {
 
     console.log(`Player ${playerId} connected. Total players: ${gameState.players.size}`);
 
-    // Send initial state to new player
+    // Send initial state to new player.
+    // `world` carries only player edits; terrain is generated deterministically
+    // on each client from WORLD_SIZE, keeping this payload tiny.
     ws.send(JSON.stringify({
         type: 'init',
         playerId: playerId,
-        world: Array.from(gameState.world.entries()).map(([key, block]) => ({
-            key,
-            ...block
-        })),
+        worldSize: WORLD_SIZE,
+        world: Array.from(gameState.edits.values()),
         players: Array.from(gameState.players.values())
             .filter(p => p.id !== playerId)
             .map(p => p.toJSON()), animals: Array.from(gameState.animals.values()),
@@ -203,7 +172,7 @@ function handleMessage(playerId, message) {
     if (message.type === 'blockPlaced' || message.type === 'blockRemoved') {
         if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=128 || message.z<0 || message.z>=128 || message.y<0 || message.y>64) return;
         if (Math.hypot(message.x-player.position.x,message.y-player.position.y,message.z-player.position.z)>10) return;
-        if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand','leaves'].includes(message.blockType)) return;
+        if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand','leaves','planks','craftingTable'].includes(message.blockType)) return;
     }
 
     switch (message.type) {
@@ -230,7 +199,7 @@ function handleMessage(playerId, message) {
 
         case 'blockPlaced':
             const blockKey = `${message.x},${message.y},${message.z}`;
-            gameState.world.set(blockKey, {
+            gameState.edits.set(blockKey, {
                 x: message.x,
                 y: message.y,
                 z: message.z,
@@ -248,7 +217,14 @@ function handleMessage(playerId, message) {
 
         case 'blockRemoved':
             const removeKey = `${message.x},${message.y},${message.z}`;
-            gameState.world.delete(removeKey);
+            // Store removals too: terrain is regenerated by every client, so a
+            // deletion must persist as an explicit "air" edit.
+            gameState.edits.set(removeKey, {
+                x: message.x,
+                y: message.y,
+                z: message.z,
+                type: null
+            });
             broadcastAll({
                 type: 'blockRemoved',
                 x: message.x,
