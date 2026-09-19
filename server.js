@@ -9,7 +9,7 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, maxPayload: 32768, perMessageDeflate: false });
+const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
 
 const PORT = process.env.PORT || 3000;
 
@@ -20,18 +20,42 @@ for (const file of ['index.html', 'game.js']) app.get(file === 'index.html' ? '/
 const gameState = {
     players: new Map(),
     world: new Map(),
-    worldGenerated: false
-    ,animals: new Map(), animalHost: null, meat: new Map(), worldVersion: 0
+    worldGenerated: false,
+    animals: new Map(),
+    animalHost: null,
+    meat: new Map(),
+    worldVersion: 0
 };
+
+const WORLD_SIZE = 64;
 
 function initializeWorld() {
     if (gameState.worldGenerated) return;
-    for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) {
-        const height = Math.floor(8 + Math.sin(x / 5) * 3 + Math.cos(z / 5) * 3);
-        for (let y = 0; y <= height; y++) gameState.world.set(`${x},${y},${z}`, { x, y, z, type: y === height ? 'grass' : y >= height - 3 ? 'dirt' : 'stone' });
+    for (let x = 0; x < WORLD_SIZE; x++) for (let z = 0; z < WORLD_SIZE; z++) {
+        const height = Math.floor(8 + Math.sin(x / 7) * 3 + Math.cos(z / 7) * 3 + Math.sin((x+z)/12)*2);
+        for (let y = 0; y <= height; y++) {
+            gameState.world.set(`${x},${y},${z}`, {
+                x, y, z,
+                type: y === height ? 'grass' : y >= height - 3 ? 'dirt' : 'stone'
+            });
+        }
     }
     gameState.worldGenerated = true;
-    for (let i=0;i<12;i++) { const x=3+i*2, z=8+i%4; const y=Math.floor(8+Math.sin(x/5)*3+Math.cos(z/5)*3)+1; gameState.animals.set(`animal${i}`, {id:`animal${i}`,x,y,z,health:6}); }
+    
+    // Spawn 12 starting mobs (Pigs, Zombies, Skeletons, Creepers)
+    const mobTypes = ['pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'zombie', 'zombie', 'skeleton', 'skeleton', 'creeper', 'creeper'];
+    for (let i = 0; i < 12; i++) {
+        const x = 6 + (i * 4) % 52;
+        const z = 8 + (i * 7) % 50;
+        const y = Math.floor(8 + Math.sin(x / 7) * 3 + Math.cos(z / 7) * 3 + Math.sin((x+z)/12)*2) + 1;
+        const mobType = mobTypes[i];
+        gameState.animals.set(`animal${i}`, {
+            id: `animal${i}`,
+            type: mobType,
+            x, y, z,
+            health: mobType === 'zombie' ? 10 : mobType === 'skeleton' ? 8 : mobType === 'creeper' ? 8 : 6
+        });
+    }
 }
 
 // Player class
@@ -39,9 +63,10 @@ class Player {
     constructor(id, ws) {
         this.id = id;
         this.ws = ws;
-        this.position = { x: 16, y: 20, z: 16 };
+        this.position = { x: 32, y: 20, z: 32 };
         this.rotation = { x: 0, y: 0 };
         this.username = `Player${id.slice(0, 4)}`;
+        this.pvp = true;
     }
 
     toJSON() {
@@ -49,7 +74,8 @@ class Player {
             id: this.id,
             position: this.position,
             rotation: this.rotation,
-            username: this.username
+            username: this.username,
+            pvp: this.pvp
         };
     }
 }
@@ -144,8 +170,8 @@ function handleMessage(playerId, message) {
     if (!player) return;
     if (!message || typeof message !== 'object') return;
     if (message.type === 'blockPlaced' || message.type === 'blockRemoved') {
-        if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=32 || message.z<0 || message.z>=32 || message.y<0 || message.y>48) return;
-        if (Math.hypot(message.x-player.position.x,message.y-player.position.y,message.z-player.position.z)>7) return;
+        if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=64 || message.z<0 || message.z>=64 || message.y<0 || message.y>48) return;
+        if (Math.hypot(message.x-player.position.x,message.y-player.position.y,message.z-player.position.z)>10) return;
         if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand'].includes(message.blockType)) return;
     }
 
@@ -159,6 +185,15 @@ function handleMessage(playerId, message) {
                 playerId: playerId,
                 position: message.position,
                 rotation: message.rotation
+            });
+            break;
+
+        case 'pvpToggle':
+            player.pvp = !!message.pvp;
+            broadcastAll({
+                type: 'playerPvp',
+                playerId: playerId,
+                pvp: player.pvp
             });
             break;
 
@@ -200,25 +235,33 @@ function handleMessage(playerId, message) {
             break;
         case 'animalState':
             if (playerId !== gameState.animalHost || !Array.isArray(message.animals) || message.animals.length > 64) return;
-            message.animals.forEach(a => { const old=gameState.animals.get(a.id); if (old && [a.x,a.y,a.z].every(Number.isFinite) && a.x>=0 && a.x<32 && a.z>=0 && a.z<32 && a.y>=0 && a.y<64) Object.assign(old,{x:a.x,y:a.y,z:a.z}); });
+            message.animals.forEach(a => { const old=gameState.animals.get(a.id); if (old && [a.x,a.y,a.z].every(Number.isFinite) && a.x>=0 && a.x<64 && a.z>=0 && a.z<64 && a.y>=0 && a.y<64) Object.assign(old,{x:a.x,y:a.y,z:a.z}); });
             broadcast(playerId, { type: 'animalState', animals: Array.from(gameState.animals.values()) });
             break;
         case 'animalHit':
             const animal = gameState.animals.get(message.id);
-            if (!animal || Math.hypot(animal.x-player.position.x,animal.y-player.position.y,animal.z-player.position.z)>5 || Date.now()-(player.lastHit||0)<400) return;
+            if (!animal || Math.hypot(animal.x-player.position.x,animal.y-player.position.y,animal.z-player.position.z)>6 || Date.now()-(player.lastHit||0)<300) return;
             player.lastHit=Date.now(); animal.health = Math.max(0, animal.health - 2);
-            if (!animal.health) { gameState.animals.delete(message.id); const drop = { id: generateId(), x: animal.x, y: animal.y + .5, z: animal.z }; gameState.meat.set(drop.id, drop); broadcastAll({ type: 'meatDropped', meat: drop }); }
+            if (!animal.health) {
+                gameState.animals.delete(message.id);
+                if (animal.type === 'pig' || !animal.type) {
+                    const drop = { id: generateId(), x: animal.x, y: animal.y + .5, z: animal.z };
+                    gameState.meat.set(drop.id, drop);
+                    broadcastAll({ type: 'meatDropped', meat: drop });
+                }
+            }
             broadcastAll({ type: 'animalState', animals: Array.from(gameState.animals.values()) });
             break;
         case 'meatPickup':
             if (!gameState.meat.has(message.id)) return;
             const meat=gameState.meat.get(message.id);
-            if(Math.hypot(meat.x-player.position.x,meat.y-player.position.y,meat.z-player.position.z)>3) return;
+            if(Math.hypot(meat.x-player.position.x,meat.y-player.position.y,meat.z-player.position.z)>4) return;
             gameState.meat.delete(message.id); broadcastAll({ type: 'meatPicked', id: message.id, playerId });
             break;
         case 'playerHit': {
             const target=gameState.players.get(message.id);
-            if(!target || target===player || Date.now()-(player.lastHit||0)<400 || Math.hypot(target.position.x-player.position.x,target.position.y-player.position.y,target.position.z-player.position.z)>5) return;
+            // Check PvP toggle for both players
+            if(!target || target===player || !player.pvp || !target.pvp || Date.now()-(player.lastHit||0)<300 || Math.hypot(target.position.x-player.position.x,target.position.y-player.position.y,target.position.z-player.position.z)>6) return;
             player.lastHit=Date.now(); target.ws.send(JSON.stringify({type:'damage',amount:2})); break;
         }
 

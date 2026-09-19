@@ -32,22 +32,19 @@ function rand(min, max) {
     return min + Math.random() * (max - min);
 }
 
-// Block Texture Generators
+// Textures
 const textures = {
-    // Dirt
     dirt: createNoiseCanvas(16, 16, () => {
         const v = rand(0.8, 1.2);
         const dark = Math.random() < 0.15 ? 0.7 : 1.0;
         return [Math.floor(134 * v * dark), Math.floor(96 * v * dark), Math.floor(67 * v * dark)];
     }).texture,
 
-    // Grass Top
     grassTop: createNoiseCanvas(16, 16, () => {
         const v = rand(0.85, 1.15);
         return [Math.floor(88 * v), Math.floor(166 * v), Math.floor(54 * v)];
     }).texture,
 
-    // Grass Side (dirt bottom with grass hanging)
     grassSide: createNoiseCanvas(16, 16, (x, y) => {
         const grassH = 3 + Math.floor(Math.sin(x * 1.5) * 1.5 + (x % 3 === 0 ? 1 : 0));
         if (y < grassH) {
@@ -59,7 +56,6 @@ const textures = {
         return [Math.floor(134 * v * dark), Math.floor(96 * v * dark), Math.floor(67 * v * dark)];
     }).texture,
 
-    // Stone
     stone: createNoiseCanvas(16, 16, () => {
         const v = rand(0.8, 1.2);
         const dark = Math.random() < 0.1 ? 0.75 : 1.0;
@@ -67,75 +63,104 @@ const textures = {
         return [g, g, g];
     }).texture,
 
-    // Wood Log Side
     woodSide: createNoiseCanvas(16, 16, (x, y) => {
         const bark = (x % 4 === 0) ? 0.7 : rand(0.85, 1.15);
         return [Math.floor(103 * bark), Math.floor(82 * bark), Math.floor(49 * bark)];
     }).texture,
 
-    // Wood Log Top (Rings)
     woodTop: createNoiseCanvas(16, 16, (x, y) => {
         const dist = Math.hypot(x - 7.5, y - 7.5);
         const ring = Math.floor(dist) % 2 === 0 ? 0.9 : 1.1;
-        if (dist > 6.5) return [70, 50, 30]; // Bark border
+        if (dist > 6.5) return [70, 50, 30];
         return [Math.floor(168 * ring), Math.floor(130 * ring), Math.floor(88 * ring)];
     }).texture,
 
-    // Sand
     sand: createNoiseCanvas(16, 16, () => {
         const v = rand(0.9, 1.1);
         const speck = Math.random() < 0.08 ? 0.85 : 1.0;
         return [Math.floor(220 * v * speck), Math.floor(214 * v * speck), Math.floor(149 * v * speck)];
     }).texture,
 
-    // Oak Leaves
-    leaves: createNoiseCanvas(16, 16, () => {
-        const transparent = Math.random() < 0.15;
-        if (transparent) return [0, 0, 0, 0];
-        const v = rand(0.7, 1.3);
-        return [Math.floor(40 * v), Math.floor(115 * v), Math.floor(25 * v), 255];
-    }).texture,
-
-    // Steve Skin Parts
+    // Steve Skin
     steveFace: createNoiseCanvas(16, 16, (x, y) => {
-        // Eyes
-        if (y === 8 && (x === 4 || x === 11)) return [255, 255, 255]; // White of eye
-        if (y === 8 && (x === 5 || x === 10)) return [40, 50, 160]; // Blue iris
-        // Hair & Beard
+        if (y === 8 && (x === 4 || x === 11)) return [255, 255, 255];
+        if (y === 8 && (x === 5 || x === 10)) return [40, 50, 160];
         if (y < 4 || (y === 4 && (x < 2 || x > 13))) return [70, 45, 25];
-        if (y >= 10 && y <= 11 && x >= 5 && x <= 10) return [100, 60, 40]; // Beard/mouth
-        // Skin
+        if (y >= 10 && y <= 11 && x >= 5 && x <= 10) return [100, 60, 40];
         const v = rand(0.95, 1.05);
         return [Math.floor(190 * v), Math.floor(138 * v), Math.floor(110 * v)];
     }).texture,
 
     steveShirt: createNoiseCanvas(16, 16, () => {
         const v = rand(0.9, 1.1);
-        return [Math.floor(0 * v), Math.floor(160 * v), Math.floor(175 * v)]; // Cyan/Teal
+        return [0, Math.floor(160 * v), Math.floor(175 * v)];
     }).texture,
 
     stevePants: createNoiseCanvas(16, 16, () => {
         const v = rand(0.9, 1.1);
-        return [Math.floor(40 * v), Math.floor(45 * v), Math.floor(125 * v)]; // Blue Jeans
+        return [Math.floor(40 * v), Math.floor(45 * v), Math.floor(125 * v)];
     }).texture,
 
-    // Pig Pink Texture
+    // Pig Texture
     pigSkin: createNoiseCanvas(16, 16, () => {
         const v = rand(0.92, 1.08);
         return [Math.floor(240 * v), Math.floor(165 * v), Math.floor(170 * v)];
     }).texture,
 
     pigSnout: createNoiseCanvas(16, 16, (x, y) => {
-        if (y >= 6 && y <= 9 && (x === 4 || x === 11)) return [80, 20, 20]; // Nostrils
+        if (y >= 6 && y <= 9 && (x === 4 || x === 11)) return [80, 20, 20];
         const v = rand(0.9, 1.1);
         return [Math.floor(220 * v), Math.floor(130 * v), Math.floor(145 * v)];
+    }).texture,
+
+    // Zombie Texture (Rotten Green)
+    zombieFace: createNoiseCanvas(16, 16, (x, y) => {
+        if (y === 8 && (x === 4 || x === 11)) return [0, 0, 0];
+        if (y === 8 && (x === 5 || x === 10)) return [180, 40, 40];
+        if (y < 4 || (y === 4 && (x < 2 || x > 13))) return [30, 60, 30];
+        const v = rand(0.9, 1.1);
+        return [Math.floor(60 * v), Math.floor(130 * v), Math.floor(60 * v)];
+    }).texture,
+
+    zombieSkin: createNoiseCanvas(16, 16, () => {
+        const v = rand(0.9, 1.1);
+        return [Math.floor(50 * v), Math.floor(115 * v), Math.floor(50 * v)];
+    }).texture,
+
+    // Skeleton Texture (Bones & Sockets)
+    skeletonFace: createNoiseCanvas(16, 16, (x, y) => {
+        if ((y >= 6 && y <= 8) && ((x >= 3 && x <= 5) || (x >= 10 && x <= 12))) return [20, 20, 20]; // Big black sockets
+        if (y === 10 && x >= 7 && x <= 8) return [30, 30, 30]; // Nose hole
+        if (y >= 12 && y <= 13 && x >= 4 && x <= 11) return (x % 2 === 0) ? [40, 40, 40] : [200, 200, 200]; // Teeth
+        const v = rand(0.9, 1.1);
+        return [Math.floor(190 * v), Math.floor(190 * v), Math.floor(190 * v)];
+    }).texture,
+
+    skeletonBone: createNoiseCanvas(16, 16, () => {
+        const v = rand(0.9, 1.1);
+        return [Math.floor(180 * v), Math.floor(180 * v), Math.floor(180 * v)];
+    }).texture,
+
+    // Creeper Texture (Camo Green & Grimace)
+    creeperFace: createNoiseCanvas(16, 16, (x, y) => {
+        // Eyes
+        if ((y >= 5 && y <= 7) && ((x >= 3 && x <= 5) || (x >= 10 && x <= 12))) return [0, 0, 0];
+        // Mouth
+        if ((y >= 7 && y <= 10 && x >= 6 && x <= 9) || (y >= 9 && y <= 13 && (x === 4 || x === 5 || x === 10 || x === 11))) return [0, 0, 0];
+        const v = rand(0.8, 1.2);
+        return [Math.floor(30 * v), Math.floor(160 * v), Math.floor(30 * v)];
+    }).texture,
+
+    creeperBody: createNoiseCanvas(16, 16, () => {
+        const v = rand(0.75, 1.25);
+        return [Math.floor(25 * v), Math.floor(150 * v), Math.floor(25 * v)];
     }).texture,
 
     // Raw Meat Texture
     meatItem: createNoiseCanvas(16, 16, (x, y) => {
         const dist = Math.hypot(x - 7.5, y - 7.5);
         if (dist > 6) return [0, 0, 0, 0];
-        if (x < 6 && y > 9) return [230, 230, 230, 255]; // Bone
+        if (x < 6 && y > 9) return [230, 230, 230, 255];
         const v = rand(0.85, 1.15);
         return [Math.floor(180 * v), Math.floor(50 * v), Math.floor(50 * v), 255];
     }).texture
@@ -146,34 +171,165 @@ const sharedGeometry = new THREE.BoxGeometry(1, 1, 1);
 
 const blockMaterials = {
     grass: [
-        new THREE.MeshLambertMaterial({ map: textures.grassSide }), // right
-        new THREE.MeshLambertMaterial({ map: textures.grassSide }), // left
-        new THREE.MeshLambertMaterial({ map: textures.grassTop }),  // top
-        new THREE.MeshLambertMaterial({ map: textures.dirt }),      // bottom
-        new THREE.MeshLambertMaterial({ map: textures.grassSide }), // front
-        new THREE.MeshLambertMaterial({ map: textures.grassSide })  // back
+        new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+        new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+        new THREE.MeshLambertMaterial({ map: textures.grassTop }),
+        new THREE.MeshLambertMaterial({ map: textures.dirt }),
+        new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+        new THREE.MeshLambertMaterial({ map: textures.grassSide })
     ],
     dirt: new THREE.MeshLambertMaterial({ map: textures.dirt }),
     stone: new THREE.MeshLambertMaterial({ map: textures.stone }),
     wood: [
-        new THREE.MeshLambertMaterial({ map: textures.woodSide }), // right
-        new THREE.MeshLambertMaterial({ map: textures.woodSide }), // left
-        new THREE.MeshLambertMaterial({ map: textures.woodTop }),  // top
-        new THREE.MeshLambertMaterial({ map: textures.woodTop }),  // bottom
-        new THREE.MeshLambertMaterial({ map: textures.woodSide }), // front
-        new THREE.MeshLambertMaterial({ map: textures.woodSide })  // back
+        new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+        new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+        new THREE.MeshLambertMaterial({ map: textures.woodTop }),
+        new THREE.MeshLambertMaterial({ map: textures.woodTop }),
+        new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+        new THREE.MeshLambertMaterial({ map: textures.woodSide })
     ],
     sand: new THREE.MeshLambertMaterial({ map: textures.sand })
 };
 
 // ==========================================
-// 2. GAME STATE & CONSTANTS
+// 2. WEB AUDIO API SOUND ENGINE
+// ==========================================
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playSound(type, material = 'stone') {
+    if (!audioCtx) return;
+
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    if (type === 'hit') {
+        // Block Punch / Mining sound (dull thud)
+        const baseFreq = material === 'stone' ? 90 : material === 'wood' ? 140 : 110;
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(baseFreq + Math.random() * 30, t);
+        osc.frequency.exponentialRampToValueAtTime(30, t + 0.08);
+
+        gain.gain.setValueAtTime(0.35, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.08);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.09);
+
+    } else if (type === 'break') {
+        // Block Break sound (crisp crunch)
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(220 + Math.random() * 80, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+
+        gain.gain.setValueAtTime(0.5, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.16);
+
+    } else if (type === 'place') {
+        // Block Place sound
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(160 + Math.random() * 40, t);
+        osc.frequency.exponentialRampToValueAtTime(80, t + 0.09);
+
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.09);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.1);
+
+    } else if (type === 'explosion') {
+        // Creeper Explosion
+        const bufferSize = audioCtx.sampleRate * 0.6;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.15));
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, t);
+        filter.frequency.linearRampToValueAtTime(80, t + 0.6);
+
+        gain.gain.setValueAtTime(0.8, t);
+        gain.gain.linearRampToValueAtTime(0.01, t + 0.6);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start(t);
+
+    } else if (type === 'fuse') {
+        // Creeper Hiss
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(3200, t);
+        osc.frequency.linearRampToValueAtTime(4500, t + 1.2);
+
+        gain.gain.setValueAtTime(0.2, t);
+        gain.gain.linearRampToValueAtTime(0.01, t + 1.2);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 1.2);
+
+    } else if (type === 'bow') {
+        // Arrow Shoot
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(450, t);
+        osc.frequency.exponentialRampToValueAtTime(150, t + 0.12);
+
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.12);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.13);
+
+    } else if (type === 'eat') {
+        // Eating crunch
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(300 + Math.random() * 100, t);
+        osc.frequency.linearRampToValueAtTime(100, t + 0.08);
+
+        gain.gain.setValueAtTime(0.2, t);
+        gain.gain.linearRampToValueAtTime(0.01, t + 0.08);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.09);
+    }
+}
+
+// ==========================================
+// 3. GAME STATE & CONSTANTS
 // ==========================================
 const BLOCK_SIZE = 1;
-const WORLD_WIDTH = 32;
-const WORLD_DEPTH = 32;
+const WORLD_WIDTH = 64; // EXPANDED WORLD!
+const WORLD_DEPTH = 64;
 const WORLD_HEIGHT = 16;
-const RENDER_DISTANCE = 48;
+const RENDER_DISTANCE = 64;
 
 const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand'];
 
@@ -190,7 +346,11 @@ const game = {
         handGroup: null,
         armMesh: null,
         swingProgress: 0,
-        isSwinging: false
+        isSwinging: false,
+        isFlying: false,
+        isCreative: false,
+        pvp: true,
+        lastSpaceTime: 0
     },
     keys: {},
     raycaster: new THREE.Raycaster(),
@@ -207,8 +367,18 @@ const game = {
     selectionBox: null,
     clouds: null,
     sun: null,
-    moon: null
+    moon: null,
+    stars: null,
+    sunLight: null,
+    ambientLight: null,
+    arrows: []
 };
+
+// Mining & Cracking Progress
+let miningTarget = null;
+let miningProgress = 0;
+let isMining = false;
+let lastMineHitSound = 0;
 
 const meatDrops = new Map();
 const meatGeometry = new THREE.BoxGeometry(0.35, 0.35, 0.35);
@@ -219,14 +389,16 @@ let animalClock = 0;
 let pickupClock = 0;
 let peak = 0;
 let lastHit = 0;
-let timeOfDay = 0; // Sun/Moon rotation
+
+// 20-minute Day/Night Cycle (1200 seconds total, 10 min day, 10 min night)
+const DAY_CYCLE_DURATION = 1200; // 20 minutes in seconds
+let worldTime = 0;
 
 // ==========================================
-// 3. MINECRAFT HUD & UI (SVG PIXEL ICONS)
+// 4. MINECRAFT HUD & UI (SVG PIXEL ICONS)
 // ==========================================
 function getHeartSvg(filled, half) {
     if (!filled && !half) {
-        // Empty Heart
         return `<svg viewBox="0 0 9 9" class="stat-icon"><path d="M2,1 h2 v1 h1 v-1 h2 v1 h1 v2 h-1 v1 h-1 v1 h-1 v1 h-1 v1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-2 h1 z" fill="#111"/><path d="M2,2 h2 v1 h-2 z M5,2 h2 v1 h-2 z M1,3 h7 v1 h-7 z M2,4 h5 v1 h-5 z M3,5 h3 v1 h-3 z M4,6 h1 v1 h-1 z" fill="#444"/></svg>`;
     }
     return `<svg viewBox="0 0 9 9" class="stat-icon"><path d="M2,0 h2 v1 h1 v-1 h2 v1 h1 v3 h-1 v1 h-1 v1 h-1 v1 h-1 v1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-3 h1 z" fill="#000"/><path d="M2,1 h2 v1 h-2 z M5,1 h2 v1 h-2 z M1,2 h7 v2 h-7 z M2,4 h5 v1 h-5 z M3,5 h3 v1 h-3 z M4,6 h1 v1 h-1 z" fill="#e71822"/><path d="M2,1 h1 v1 h-1 z M2,2 h1 v1 h-1 z" fill="#ffffff"/></svg>`;
@@ -240,21 +412,27 @@ function getHungerSvg(filled) {
 }
 
 function updateHud() {
-    // 1. Health Bar (10 hearts)
-    let heartsHtml = '';
-    for (let i = 0; i < 10; i++) {
-        const hp = game.health - (i * 2);
-        heartsHtml += getHeartSvg(hp >= 2, hp === 1);
-    }
-    document.getElementById('hearts-bar').innerHTML = heartsHtml;
+    const vitalsEl = document.getElementById('vitals');
+    if (game.player.isCreative) {
+        vitalsEl.style.display = 'none';
+    } else {
+        vitalsEl.style.display = 'flex';
+        // 1. Health Bar
+        let heartsHtml = '';
+        for (let i = 0; i < 10; i++) {
+            const hp = game.health - (i * 2);
+            heartsHtml += getHeartSvg(hp >= 2, hp === 1);
+        }
+        document.getElementById('hearts-bar').innerHTML = heartsHtml;
 
-    // 2. Hunger Bar (10 drumsticks)
-    let hungerHtml = '';
-    for (let i = 0; i < 10; i++) {
-        const hg = game.hunger - (i * 2);
-        hungerHtml += getHungerSvg(hg >= 1);
+        // 2. Hunger Bar
+        let hungerHtml = '';
+        for (let i = 0; i < 10; i++) {
+            const hg = game.hunger - (i * 2);
+            hungerHtml += getHungerSvg(hg >= 1);
+        }
+        document.getElementById('hunger-bar').innerHTML = hungerHtml;
     }
-    document.getElementById('hunger-bar').innerHTML = hungerHtml;
 
     // 3. Hotbar Slots
     const hotbarEl = document.getElementById('hotbar');
@@ -277,6 +455,21 @@ function updateHud() {
         </div>
     `;
     hotbarEl.innerHTML = hotbarHtml;
+
+    // 4. Mode Panel & Buttons
+    const modePanel = document.getElementById('mode-panel');
+    if (modePanel) {
+        modePanel.textContent = `Mode: ${game.player.isCreative ? 'Creative (Flying: ' + (game.player.isFlying ? 'ON' : 'OFF') + ')' : 'Survival'}`;
+    }
+    const pvpBtn = document.getElementById('pvp-btn');
+    if (pvpBtn) {
+        pvpBtn.textContent = `PvP: ${game.player.pvp ? 'ON' : 'OFF'}`;
+        pvpBtn.style.background = game.player.pvp ? '#a83232' : '#328832';
+    }
+    const modeBtn = document.getElementById('gamemode-btn');
+    if (modeBtn) {
+        modeBtn.textContent = game.player.isCreative ? 'Switch to Survival' : 'Switch to Creative';
+    }
 }
 
 function getBlockColorPreview(type) {
@@ -300,14 +493,14 @@ function showNotice(text) {
 }
 
 // ==========================================
-// 4. VOXEL CLOUDS & SKY DYNAMICS
+// 5. VOXEL CLOUDS, STARS, SUN & MOON
 // ==========================================
 function createMinecraftClouds() {
     const cloudGroup = new THREE.Group();
     const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
     
-    for (let x = -80; x <= 80; x += 16) {
-        for (let z = -80; z <= 80; z += 16) {
+    for (let x = -120; x <= 120; x += 16) {
+        for (let z = -120; z <= 120; z += 16) {
             if (Math.random() > 0.45) {
                 const cloud = new THREE.Mesh(new THREE.BoxGeometry(16, 2, 16), cloudMat);
                 cloud.position.set(x, 42, z);
@@ -318,42 +511,58 @@ function createMinecraftClouds() {
     return cloudGroup;
 }
 
-function createSunAndMoon() {
+function createSkyDiorama() {
     const group = new THREE.Group();
 
     // Pixel Sun
-    const sunGeom = new THREE.PlaneGeometry(8, 8);
+    const sunGeom = new THREE.PlaneGeometry(12, 12);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xffffbb, side: THREE.DoubleSide });
     const sun = new THREE.Mesh(sunGeom, sunMat);
-    sun.position.set(0, 100, 0);
-    sun.lookAt(0, 0, 0);
     group.add(sun);
     game.sun = sun;
 
     // Pixel Moon
-    const moonGeom = new THREE.PlaneGeometry(6, 6);
+    const moonGeom = new THREE.PlaneGeometry(10, 10);
     const moonMat = new THREE.MeshBasicMaterial({ color: 0xddddff, side: THREE.DoubleSide });
     const moon = new THREE.Mesh(moonGeom, moonMat);
-    moon.position.set(0, -100, 0);
-    moon.lookAt(0, 0, 0);
     group.add(moon);
     game.moon = moon;
+
+    // Stars
+    const starGeom = new THREE.BufferGeometry();
+    const starCoords = [];
+    for (let i = 0; i < 300; i++) {
+        const u = Math.random();
+        const v = Math.random();
+        const theta = u * 2.0 * Math.PI;
+        const phi = Math.acos(2.0 * v - 1.0);
+        const r = 180;
+        starCoords.push(
+            r * Math.sin(phi) * Math.cos(theta),
+            r * Math.sin(phi) * Math.sin(theta),
+            r * Math.cos(phi)
+        );
+    }
+    starGeom.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0 });
+    const stars = new THREE.Points(starGeom, starMat);
+    group.add(stars);
+    game.stars = stars;
 
     return group;
 }
 
 // ==========================================
-// 5. FIRST PERSON STEVE ARM & SWINGING
+// 6. FIRST PERSON STEVE ARM & SWINGING
 // ==========================================
 function createFirstPersonArm() {
     const armGroup = new THREE.Group();
 
-    // Arm (Steve Sleeve + Skin)
     const armGeom = new THREE.BoxGeometry(0.2, 0.6, 0.2);
     const armMaterials = [
         new THREE.MeshLambertMaterial({ map: textures.steveShirt }),
         new THREE.MeshLambertMaterial({ map: textures.steveShirt }),
-        new THREE.MeshLambertMaterial({ map: textures.steveFace }), // Hand skin
+        new THREE.MeshLambertMaterial({ map: textures.steveFace }),
         new THREE.MeshLambertMaterial({ map: textures.steveFace }),
         new THREE.MeshLambertMaterial({ map: textures.steveShirt }),
         new THREE.MeshLambertMaterial({ map: textures.steveShirt })
@@ -391,7 +600,7 @@ function updateArmSwing(delta) {
 }
 
 // ==========================================
-// 6. BLOCK SELECTION OUTLINE BOX
+// 7. BLOCK SELECTION OUTLINE BOX
 // ==========================================
 function createSelectionOutline() {
     const geom = new THREE.BoxGeometry(1.005, 1.005, 1.005);
@@ -426,12 +635,12 @@ function updateSelectionOutline() {
 }
 
 // ==========================================
-// 7. INITIALIZE ENGINE & GRAPHICS
+// 8. INITIALIZE ENGINE & GRAPHICS
 // ==========================================
 function init() {
     // Create Scene
     game.scene = new THREE.Scene();
-    game.scene.background = new THREE.Color(0x78a7ff); // Minecraft sky blue
+    game.scene.background = new THREE.Color(0x78a7ff);
     game.scene.fog = new THREE.Fog(0x78a7ff, 20, RENDER_DISTANCE * BLOCK_SIZE);
 
     // Camera
@@ -444,18 +653,18 @@ function init() {
     game.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     document.body.appendChild(game.renderer.domElement);
 
-    // Lighting (Warm Minecraft Sunlight)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
-    game.scene.add(ambientLight);
+    // Lighting
+    game.ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    game.scene.add(game.ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfffbe8, 0.85);
-    sunLight.position.set(45, 90, 30);
-    game.scene.add(sunLight);
+    game.sunLight = new THREE.DirectionalLight(0xfffbe8, 0.85);
+    game.sunLight.position.set(45, 90, 30);
+    game.scene.add(game.sunLight);
 
     // Clouds & Celestial Bodies
     game.clouds = createMinecraftClouds();
     game.scene.add(game.clouds);
-    game.scene.add(createSunAndMoon());
+    game.scene.add(createSkyDiorama());
 
     // Selection Box & First-person Arm
     createSelectionOutline();
@@ -469,6 +678,7 @@ function init() {
     const playBtn = document.getElementById('play-btn');
 
     playBtn.addEventListener('click', () => {
+        initAudio();
         if (ready) game.controls.lock();
     });
 
@@ -480,6 +690,17 @@ function init() {
         startScreen.style.display = 'flex';
     });
 
+    // Buttons
+    document.getElementById('pvp-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePvP();
+    });
+
+    document.getElementById('gamemode-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleGamemode();
+    });
+
     // Network Connect
     connectToServer();
 
@@ -488,13 +709,34 @@ function init() {
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mouseup', onMouseUp);
 
     // Animation loop
     animate();
 }
 
+function togglePvP() {
+    game.player.pvp = !game.player.pvp;
+    send({ type: 'pvpToggle', pvp: game.player.pvp });
+    updateHud();
+    showNotice(`PvP is now ${game.player.pvp ? 'ON' : 'OFF'}`);
+}
+
+function toggleGamemode() {
+    game.player.isCreative = !game.player.isCreative;
+    if (game.player.isCreative) {
+        game.health = 20;
+        game.hunger = 20;
+        showNotice('Switched to Creative Mode (Double-tap Space to fly)');
+    } else {
+        game.player.isFlying = false;
+        showNotice('Switched to Survival Mode');
+    }
+    updateHud();
+}
+
 // ==========================================
-// 8. WORLD & BLOCK MANAGEMENT
+// 9. WORLD & BLOCK MANAGEMENT
 // ==========================================
 function addBlock(x, y, z, type) {
     const key = `${x},${y},${z}`;
@@ -514,6 +756,7 @@ function removeBlock(x, y, z) {
     const key = `${x},${y},${z}`;
     const block = game.world.get(key);
     if (block) {
+        playSound('break', block.userData.blockType);
         game.scene.remove(block);
         game.world.delete(key);
         cull(x, y, z);
@@ -543,47 +786,148 @@ function surface(x, z) {
     return -0.5;
 }
 
+// Calculate mining hardness based on block type and depth (y)
+function getBlockHardness(y, blockType) {
+    if (game.player.isCreative) return 0.01; // Instant break in Creative
+    let base = 0.4;
+    if (blockType === 'stone') base = 1.0;
+    if (blockType === 'wood') base = 0.8;
+    if (blockType === 'dirt') base = 0.3;
+    if (blockType === 'sand') base = 0.25;
+
+    // Deeper under ground (y from 12 down to 0) = significantly harder!
+    const depthFactor = Math.max(1, (16 - y) * 0.25);
+    return base * depthFactor;
+}
+
 // ==========================================
-// 9. ANIMALS: AUTHENTIC VOXEL PIGS
+// 10. AUTHENTIC MOBS (ZOMBIE, SKELETON, CREEPER, PIG)
 // ==========================================
-function createMinecraftPig() {
-    const pig = new THREE.Group();
-    const pigMat = new THREE.MeshLambertMaterial({ map: textures.pigSkin });
-    const snoutMat = new THREE.MeshLambertMaterial({ map: textures.pigSnout });
+function createMobModel(type) {
+    const mob = new THREE.Group();
 
-    // Body
-    const body = new THREE.Mesh(sharedGeometry, pigMat);
-    body.position.set(0, 0.55, 0);
-    body.scale.set(0.9, 0.65, 1.2);
-    pig.add(body);
+    if (type === 'pig') {
+        const pigMat = new THREE.MeshLambertMaterial({ map: textures.pigSkin });
+        const snoutMat = new THREE.MeshLambertMaterial({ map: textures.pigSnout });
 
-    // Head
-    const head = new THREE.Mesh(sharedGeometry, pigMat);
-    head.position.set(0, 0.95, 0.7);
-    head.scale.set(0.65, 0.65, 0.65);
-    pig.add(head);
+        const body = new THREE.Mesh(sharedGeometry, pigMat);
+        body.position.set(0, 0.55, 0);
+        body.scale.set(0.9, 0.65, 1.2);
+        mob.add(body);
 
-    // Snout
-    const snout = new THREE.Mesh(sharedGeometry, snoutMat);
-    snout.position.set(0, 0.85, 1.05);
-    snout.scale.set(0.35, 0.25, 0.15);
-    pig.add(snout);
+        const head = new THREE.Mesh(sharedGeometry, pigMat);
+        head.position.set(0, 0.95, 0.7);
+        head.scale.set(0.65, 0.65, 0.65);
+        mob.add(head);
 
-    // 4 Legs
-    const legPositions = [
-        [-0.3, 0.2, -0.4],
-        [0.3, 0.2, -0.4],
-        [-0.3, 0.2, 0.4],
-        [0.3, 0.2, 0.4]
-    ];
-    legPositions.forEach(([lx, ly, lz]) => {
-        const leg = new THREE.Mesh(sharedGeometry, pigMat);
-        leg.position.set(lx, ly, lz);
-        leg.scale.set(0.22, 0.4, 0.22);
-        pig.add(leg);
-    });
+        const snout = new THREE.Mesh(sharedGeometry, snoutMat);
+        snout.position.set(0, 0.85, 1.05);
+        snout.scale.set(0.35, 0.25, 0.15);
+        mob.add(snout);
 
-    return pig;
+        [[-0.3, 0.2, -0.4], [0.3, 0.2, -0.4], [-0.3, 0.2, 0.4], [0.3, 0.2, 0.4]].forEach(([lx, ly, lz]) => {
+            const leg = new THREE.Mesh(sharedGeometry, pigMat);
+            leg.position.set(lx, ly, lz);
+            leg.scale.set(0.22, 0.4, 0.22);
+            mob.add(leg);
+        });
+
+    } else if (type === 'zombie') {
+        const headMat = new THREE.MeshLambertMaterial({ map: textures.zombieFace });
+        const skinMat = new THREE.MeshLambertMaterial({ map: textures.zombieSkin });
+        const shirtMat = new THREE.MeshLambertMaterial({ map: textures.steveShirt });
+        const pantsMat = new THREE.MeshLambertMaterial({ map: textures.stevePants });
+
+        const head = new THREE.Mesh(sharedGeometry, headMat);
+        head.position.set(0, 1.45, 0);
+        head.scale.set(0.5, 0.5, 0.5);
+        mob.add(head);
+
+        const torso = new THREE.Mesh(sharedGeometry, shirtMat);
+        torso.position.set(0, 0.85, 0);
+        torso.scale.set(0.5, 0.7, 0.25);
+        mob.add(torso);
+
+        // Arms stretched forward like a classic zombie!
+        const leftArm = new THREE.Mesh(sharedGeometry, skinMat);
+        leftArm.position.set(-0.35, 1.0, 0.35);
+        leftArm.scale.set(0.2, 0.2, 0.7);
+        mob.add(leftArm);
+
+        const rightArm = new THREE.Mesh(sharedGeometry, skinMat);
+        rightArm.position.set(0.35, 1.0, 0.35);
+        rightArm.scale.set(0.2, 0.2, 0.7);
+        mob.add(rightArm);
+
+        const leftLeg = new THREE.Mesh(sharedGeometry, pantsMat);
+        leftLeg.position.set(-0.13, 0.25, 0);
+        leftLeg.scale.set(0.22, 0.65, 0.24);
+        mob.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(sharedGeometry, pantsMat);
+        rightLeg.position.set(0.13, 0.25, 0);
+        rightLeg.scale.set(0.22, 0.65, 0.24);
+        mob.add(rightLeg);
+
+    } else if (type === 'skeleton') {
+        const headMat = new THREE.MeshLambertMaterial({ map: textures.skeletonFace });
+        const boneMat = new THREE.MeshLambertMaterial({ map: textures.skeletonBone });
+
+        const head = new THREE.Mesh(sharedGeometry, headMat);
+        head.position.set(0, 1.45, 0);
+        head.scale.set(0.5, 0.5, 0.5);
+        mob.add(head);
+
+        const ribs = new THREE.Mesh(sharedGeometry, boneMat);
+        ribs.position.set(0, 0.85, 0);
+        ribs.scale.set(0.4, 0.7, 0.2);
+        mob.add(ribs);
+
+        // Bow holding pose
+        const bowArm = new THREE.Mesh(sharedGeometry, boneMat);
+        bowArm.position.set(0.3, 0.95, 0.3);
+        bowArm.scale.set(0.15, 0.15, 0.6);
+        mob.add(bowArm);
+
+        // Bow mesh
+        const bow = new THREE.Mesh(sharedGeometry, new THREE.MeshBasicMaterial({ color: 0x5a3d28 }));
+        bow.position.set(0.3, 0.95, 0.6);
+        bow.scale.set(0.08, 0.6, 0.08);
+        mob.add(bow);
+
+        const leftLeg = new THREE.Mesh(sharedGeometry, boneMat);
+        leftLeg.position.set(-0.12, 0.25, 0);
+        leftLeg.scale.set(0.15, 0.65, 0.15);
+        mob.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(sharedGeometry, boneMat);
+        rightLeg.position.set(0.12, 0.25, 0);
+        rightLeg.scale.set(0.15, 0.65, 0.15);
+        mob.add(rightLeg);
+
+    } else if (type === 'creeper') {
+        const headMat = new THREE.MeshLambertMaterial({ map: textures.creeperFace });
+        const bodyMat = new THREE.MeshLambertMaterial({ map: textures.creeperBody });
+
+        const head = new THREE.Mesh(sharedGeometry, headMat);
+        head.position.set(0, 1.25, 0);
+        head.scale.set(0.5, 0.5, 0.5);
+        mob.add(head);
+
+        const body = new THREE.Mesh(sharedGeometry, bodyMat);
+        body.position.set(0, 0.65, 0);
+        body.scale.set(0.45, 0.7, 0.25);
+        mob.add(body);
+
+        [[-0.2, 0.15, -0.2], [0.2, 0.15, -0.2], [-0.2, 0.15, 0.2], [0.2, 0.15, 0.2]].forEach(([lx, ly, lz]) => {
+            const leg = new THREE.Mesh(sharedGeometry, bodyMat);
+            leg.position.set(lx, ly, lz);
+            leg.scale.set(0.2, 0.35, 0.2);
+            mob.add(leg);
+        });
+    }
+
+    return mob;
 }
 
 function syncAnimals(list) {
@@ -597,10 +941,12 @@ function syncAnimals(list) {
     for (const data of list) {
         let a = game.animals.get(data.id);
         if (!a) {
-            const model = createMinecraftPig();
+            const mobType = data.type || (data.id.includes('zombie') ? 'zombie' : data.id.includes('skeleton') ? 'skeleton' : data.id.includes('creeper') ? 'creeper' : 'pig');
+            const model = createMobModel(mobType);
             model.userData.animal = data.id;
+            model.userData.mobType = mobType;
             game.scene.add(model);
-            a = { model, angle: Math.random() * 6, turn: 0 };
+            a = { model, angle: Math.random() * 6, turn: 0, type: mobType, shootClock: 0, fuseClock: 0 };
             game.animals.set(data.id, a);
             model.position.set(data.x, data.y, data.z);
         }
@@ -609,28 +955,25 @@ function syncAnimals(list) {
 }
 
 // ==========================================
-// 10. AUTHENTIC STEVE PLAYER MODEL
+// 11. AUTHENTIC STEVE PLAYER MODEL (PvP TAG)
 // ==========================================
-function createSteveModel() {
+function createSteveModel(pvpEnabled) {
     const group = new THREE.Group();
 
     const headMat = new THREE.MeshLambertMaterial({ map: textures.steveFace });
     const shirtMat = new THREE.MeshLambertMaterial({ map: textures.steveShirt });
     const pantsMat = new THREE.MeshLambertMaterial({ map: textures.stevePants });
 
-    // Head
     const head = new THREE.Mesh(sharedGeometry, headMat);
     head.position.set(0, 1.35, 0);
     head.scale.set(0.5, 0.5, 0.5);
     group.add(head);
 
-    // Torso / Shirt
     const torso = new THREE.Mesh(sharedGeometry, shirtMat);
     torso.position.set(0, 0.75, 0);
     torso.scale.set(0.5, 0.7, 0.25);
     group.add(torso);
 
-    // Arms
     const leftArm = new THREE.Mesh(sharedGeometry, shirtMat);
     leftArm.position.set(-0.35, 0.75, 0);
     leftArm.scale.set(0.2, 0.7, 0.22);
@@ -641,7 +984,6 @@ function createSteveModel() {
     rightArm.scale.set(0.2, 0.7, 0.22);
     group.add(rightArm);
 
-    // Legs
     const leftLeg = new THREE.Mesh(sharedGeometry, pantsMat);
     leftLeg.position.set(-0.13, 0.15, 0);
     leftLeg.scale.set(0.22, 0.65, 0.24);
@@ -652,22 +994,22 @@ function createSteveModel() {
     rightLeg.scale.set(0.22, 0.65, 0.24);
     group.add(rightLeg);
 
-    // Name Tag
+    // Name Tag with PvP indicator
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     canvas.width = 256;
     canvas.height = 64;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = 'Bold 32px monospace';
-    ctx.fillStyle = '#ffffff';
+    ctx.font = 'Bold 28px monospace';
+    ctx.fillStyle = pvpEnabled ? '#ff6666' : '#66ff66';
     ctx.textAlign = 'center';
-    ctx.fillText('Player', canvas.width / 2, 44);
+    ctx.fillText(`Player [${pvpEnabled ? 'PvP' : 'Peace'}]`, canvas.width / 2, 44);
 
     const texture = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
-    sprite.scale.set(2, 0.5, 1);
-    sprite.position.y = 2.0;
+    sprite.scale.set(2.4, 0.6, 1);
+    sprite.position.y = 2.05;
     group.add(sprite);
 
     return group;
@@ -675,7 +1017,7 @@ function createSteveModel() {
 
 function addOtherPlayer(playerData) {
     if (game.otherPlayers.has(playerData.id)) return;
-    const playerModel = createSteveModel();
+    const playerModel = createSteveModel(playerData.pvp !== false);
     playerModel.userData.player = playerData.id;
     playerModel.position.set(playerData.position.x, playerData.position.y - 1.6, playerData.position.z);
 
@@ -684,7 +1026,8 @@ function addOtherPlayer(playerData) {
         model: playerModel,
         targetPosition: playerData.position,
         targetRotation: playerData.rotation,
-        username: playerData.username
+        username: playerData.username,
+        pvp: playerData.pvp !== false
     });
 }
 
@@ -708,7 +1051,7 @@ function updateOtherPlayers() {
 }
 
 // ==========================================
-// 11. MEAT DROPS
+// 12. MEAT DROPS & ARROWS
 // ==========================================
 function addMeat(data) {
     if (meatDrops.has(data.id)) return;
@@ -719,8 +1062,43 @@ function addMeat(data) {
     meatDrops.set(data.id, m);
 }
 
+function spawnSkeletonArrow(fromPos, targetPos) {
+    const arrowGeom = new THREE.BoxGeometry(0.08, 0.08, 0.8);
+    const arrowMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
+    const arrow = new THREE.Mesh(arrowGeom, arrowMat);
+    arrow.position.copy(fromPos);
+    arrow.lookAt(targetPos);
+
+    const dir = targetPos.clone().sub(fromPos).normalize();
+    game.scene.add(arrow);
+    game.arrows.push({ mesh: arrow, dir, life: 3.0 });
+    playSound('bow');
+}
+
+function updateArrows(delta) {
+    for (let i = game.arrows.length - 1; i >= 0; i--) {
+        const arrow = game.arrows[i];
+        arrow.mesh.position.addScaledVector(arrow.dir, delta * 18);
+        arrow.life -= delta;
+
+        // Hit player check
+        if (arrow.mesh.position.distanceTo(game.camera.position) < 1.2) {
+            damage(3);
+            showNotice('Shot by Skeleton!');
+            game.scene.remove(arrow.mesh);
+            game.arrows.splice(i, 1);
+            continue;
+        }
+
+        if (arrow.life <= 0) {
+            game.scene.remove(arrow.mesh);
+            game.arrows.splice(i, 1);
+        }
+    }
+}
+
 // ==========================================
-// 12. SURVIVAL, CONTROLS & COMBAT
+// 13. SURVIVAL, MOB BEHAVIOR & CONTINUOUS MINING
 // ==========================================
 function send(m) {
     if (ready && game.ws.readyState === WebSocket.OPEN) {
@@ -729,7 +1107,7 @@ function send(m) {
 }
 
 function respawn() {
-    game.camera.position.set(16, surface(16, 16) + 1.82, 16);
+    game.camera.position.set(32, surface(32, 32) + 1.82, 32);
     game.player.velocity.set(0, 0, 0);
     game.player.onGround = false;
     peak = game.camera.position.y;
@@ -740,6 +1118,7 @@ function respawn() {
 }
 
 function damage(amount) {
+    if (game.player.isCreative) return; // Invulnerable in Creative
     game.health = Math.max(0, game.health - amount);
     updateHud();
     if (game.health <= 0) {
@@ -751,35 +1130,124 @@ function damage(amount) {
 function survival(delta) {
     if (!ready) return;
 
-    // Hunger and starvation
-    game.hunger = Math.max(0, game.hunger - delta / 20);
-    if (game.hunger === 0) damage(delta / 2);
+    // Day/Night Cycle Progression (20 min cycle)
+    worldTime = (worldTime + delta) % DAY_CYCLE_DURATION;
+    const dayRatio = worldTime / DAY_CYCLE_DURATION; // 0 to 1
+    const sunAngle = dayRatio * Math.PI * 2;
+
+    const isNight = Math.sin(sunAngle) < 0;
+
+    // Sun & Moon Positions
+    if (game.sun) {
+        game.sun.position.x = Math.cos(sunAngle) * 150;
+        game.sun.position.y = Math.sin(sunAngle) * 150;
+        game.sun.position.z = 32;
+        game.sun.lookAt(32, 0, 32);
+    }
+    if (game.moon) {
+        game.moon.position.x = Math.cos(sunAngle + Math.PI) * 150;
+        game.moon.position.y = Math.sin(sunAngle + Math.PI) * 150;
+        game.moon.position.z = 32;
+        game.moon.lookAt(32, 0, 32);
+    }
+
+    // Sky & Lighting Transition (Day = Blue / Night = Deep Dark Midnight)
+    const skyLightIntensity = Math.max(0.08, Math.sin(sunAngle));
+    if (game.ambientLight) {
+        game.ambientLight.intensity = 0.2 + skyLightIntensity * 0.55;
+    }
+    if (game.sunLight) {
+        game.sunLight.intensity = Math.max(0, skyLightIntensity * 0.85);
+        game.sunLight.position.set(Math.cos(sunAngle) * 60, Math.max(5, Math.sin(sunAngle) * 90), 32);
+    }
+    if (game.scene) {
+        const skyR = 0.05 + skyLightIntensity * 0.42;
+        const skyG = 0.05 + skyLightIntensity * 0.60;
+        const skyB = 0.15 + skyLightIntensity * 0.85;
+        game.scene.background.setRGB(skyR, skyG, skyB);
+        if (game.scene.fog) {
+            game.scene.fog.color.setRGB(skyR, skyG, skyB);
+        }
+    }
+    if (game.stars) {
+        game.stars.material.opacity = isNight ? 0.9 : 0.0;
+    }
+
+    // Hunger drain in Survival
+    if (!game.player.isCreative) {
+        game.hunger = Math.max(0, game.hunger - delta / 25);
+        if (game.hunger === 0) damage(delta / 2);
+    }
 
     animalClock += delta;
     pickupClock += delta;
 
-    // Animal movement (Elected Client Host)
+    // AI & Hostile Mobs Movement
     for (const a of game.animals.values()) {
+        const distToPlayer = game.camera.position.distanceTo(new THREE.Vector3(a.x, a.y, a.z));
+
         if (game.animalHost === game.playerId) {
-            a.turn -= delta;
-            if (a.turn <= 0) {
-                a.angle += (Math.random() - 0.5) * 2;
-                a.turn = 2.5;
-            }
-            const x = a.x + Math.sin(a.angle) * delta * 0.7;
-            const z = a.z + Math.cos(a.angle) * delta * 0.7;
-            if (x < 1 || x > 30 || z < 1 || z > 30 || Math.abs(surface(x, z) - a.y) > 1.1) {
-                a.angle += Math.PI;
+            if (a.type === 'zombie' && distToPlayer < 16) {
+                // Zombie pursues player
+                const dir = game.camera.position.clone().sub(new THREE.Vector3(a.x, a.y, a.z)).normalize();
+                a.x += dir.x * delta * 1.8;
+                a.z += dir.z * delta * 1.8;
+                a.angle = Math.atan2(dir.x, dir.z);
+            } else if (a.type === 'skeleton' && distToPlayer < 18) {
+                // Skeleton shoots bow periodically
+                a.shootClock = (a.shootClock || 0) + delta;
+                if (a.shootClock > 3.0) {
+                    a.shootClock = 0;
+                    spawnSkeletonArrow(new THREE.Vector3(a.x, a.y + 1.2, a.z), game.camera.position);
+                }
+            } else if (a.type === 'creeper' && distToPlayer < 12) {
+                // Creeper chases and explodes!
+                const dir = game.camera.position.clone().sub(new THREE.Vector3(a.x, a.y, a.z)).normalize();
+                a.x += dir.x * delta * 2.2;
+                a.z += dir.z * delta * 2.2;
+                a.angle = Math.atan2(dir.x, dir.z);
+
+                if (distToPlayer < 3.0) {
+                    a.fuseClock = (a.fuseClock || 0) + delta;
+                    if (a.fuseClock === delta) playSound('fuse');
+                    if (a.fuseClock > 1.5) {
+                        // EXPLODE!
+                        playSound('explosion');
+                        damage(12);
+                        showNotice('Creeper Exploded!');
+                        send({ type: 'animalHit', id: a.id });
+                    }
+                } else {
+                    a.fuseClock = 0;
+                }
             } else {
-                a.x = x;
-                a.z = z;
+                // Passive wander
+                a.turn -= delta;
+                if (a.turn <= 0) {
+                    a.angle += (Math.random() - 0.5) * 2;
+                    a.turn = 2.5;
+                }
+                const x = a.x + Math.sin(a.angle) * delta * 0.7;
+                const z = a.z + Math.cos(a.angle) * delta * 0.7;
+                if (x < 1 || x > 62 || z < 1 || z > 62 || Math.abs(surface(x, z) - a.y) > 1.1) {
+                    a.angle += Math.PI;
+                } else {
+                    a.x = x;
+                    a.z = z;
+                }
             }
             a.y = THREE.MathUtils.lerp(a.y, surface(a.x, a.z), Math.min(1, delta * 10));
         }
+
         const target = new THREE.Vector3(a.x, a.y, a.z);
         const d = target.clone().sub(a.model.position);
         if (d.lengthSq() > 0.0001) a.model.rotation.y = Math.atan2(d.x, d.z);
         a.model.position.lerp(target, Math.min(1, delta * 12));
+
+        // Zombie melee hit
+        if (a.type === 'zombie' && distToPlayer < 1.6) {
+            damage(delta * 4);
+        }
     }
 
     if (animalClock >= 0.2) {
@@ -791,6 +1259,10 @@ function survival(delta) {
             });
         }
     }
+
+    // Continuous Mining Progress Update
+    updateMining(delta);
+    updateArrows(delta);
 
     // Floating Meat Drops
     for (const [id, m] of meatDrops) {
@@ -805,25 +1277,104 @@ function survival(delta) {
     if (pickupClock >= 0.3) pickupClock = 0;
 
     // Status Panel
+    const timeDisplay = isNight ? '🌙 Night' : '☀️ Day';
     document.getElementById('status-panel').textContent =
-        `Connected: ${game.otherPlayers.size + 1}/8 | Role: ${game.animalHost === game.playerId ? 'Simulation Host' : 'Guest'}`;
+        `World: 64x64 | ${timeDisplay} | Players: ${game.otherPlayers.size + 1}/8`;
+}
+
+function updateMining(delta) {
+    const progressEl = document.getElementById('mining-progress');
+    const progressBar = document.getElementById('mining-bar');
+
+    if (!isMining || !game.controls.isLocked) {
+        miningProgress = 0;
+        miningTarget = null;
+        if (progressEl) progressEl.style.display = 'none';
+        return;
+    }
+
+    game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
+    game.raycaster.far = 5;
+
+    const visibleBlocks = Array.from(game.world.values()).filter(m => m.visible);
+    const intersects = game.raycaster.intersectObjects(visibleBlocks, true);
+
+    if (intersects.length > 0) {
+        const block = intersects[0].object;
+        const blockPos = block.position.clone().divideScalar(BLOCK_SIZE);
+        const targetKey = `${blockPos.x},${blockPos.y},${blockPos.z}`;
+
+        if (miningTarget !== targetKey) {
+            miningTarget = targetKey;
+            miningProgress = 0;
+        }
+
+        triggerSwing();
+
+        // Hit sound rhythm
+        if (performance.now() - lastMineHitSound > 220) {
+            lastMineHitSound = performance.now();
+            playSound('hit', block.userData.blockType);
+        }
+
+        const hardness = getBlockHardness(blockPos.y, block.userData.blockType);
+        miningProgress += delta / hardness;
+
+        if (progressEl) progressEl.style.display = 'block';
+        if (progressBar) progressBar.style.width = `${Math.min(100, miningProgress * 100)}%`;
+
+        if (miningProgress >= 1.0) {
+            // Block successfully mined!
+            send({ type: 'blockRemoved', x: blockPos.x, y: blockPos.y, z: blockPos.z });
+            miningProgress = 0;
+            miningTarget = null;
+            if (progressEl) progressEl.style.display = 'none';
+        }
+    } else {
+        miningProgress = 0;
+        miningTarget = null;
+        if (progressEl) progressEl.style.display = 'none';
+    }
 }
 
 function onKeyDown(event) {
     game.keys[event.code] = true;
+
+    // Double-tap Space for Creative Flight
+    if (event.code === 'Space' && !event.repeat && game.player.isCreative) {
+        const now = performance.now();
+        if (now - game.player.lastSpaceTime < 320) {
+            game.player.isFlying = !game.player.isFlying;
+            game.player.velocity.set(0, 0, 0);
+            showNotice(`Flying: ${game.player.isFlying ? 'ON' : 'OFF'}`);
+            updateHud();
+        }
+        game.player.lastSpaceTime = now;
+    }
+
+    // Toggle Mode (C key)
+    if (event.code === 'KeyC' && !event.repeat) {
+        toggleGamemode();
+    }
+
+    // Toggle PvP (P key)
+    if (event.code === 'KeyP' && !event.repeat) {
+        togglePvP();
+    }
 
     // Eating Meat (E key)
     if (event.code === 'KeyE' && !event.repeat && ready && game.controls.isLocked) {
         if (game.meat > 0 && game.hunger < 20) {
             game.meat--;
             game.hunger = Math.min(20, game.hunger + 6);
+            playSound('eat');
             showNotice('Ate meat (+6 Hunger)');
             triggerSwing();
             updateHud();
         }
     }
 
-    // Number Selection 1-5
+    // Hotbar Selection 1-5
     if (event.code === 'Digit1') selectBlock('grass');
     if (event.code === 'Digit2') selectBlock('dirt');
     if (event.code === 'Digit3') selectBlock('stone');
@@ -841,54 +1392,57 @@ function onKeyUp(event) {
 }
 
 function onMouseDown(event) {
-    if (!game.controls.isLocked || !ready || performance.now() - lastHit < 300) return;
-    lastHit = performance.now();
+    if (!game.controls.isLocked || !ready) return;
 
-    triggerSwing();
+    if (event.button === 0) {
+        isMining = true;
+        game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
+        game.raycaster.far = 5;
 
-    game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
-    game.raycaster.far = 5;
-
-    const targets = [
-        ...Array.from(game.world.values()).filter(m => m.visible),
-        ...Array.from(game.animals.values(), a => a.model),
-        ...Array.from(game.otherPlayers.values(), p => p.model)
-    ];
-
-    const intersects = game.raycaster.intersectObjects(targets, true);
-
-    if (intersects.length > 0) {
-        const intersect = intersects[0];
-        let root = intersect.object;
-        while (root.parent && root.parent !== game.scene) root = root.parent;
-
-        // Hit Animal
-        if (root.userData.animal) {
-            if (event.button === 0) send({ type: 'animalHit', id: root.userData.animal });
-            return;
-        }
-
-        // Hit Player (PvP)
-        if (root.userData.player) {
-            if (event.button === 0) send({ type: 'playerHit', id: root.userData.player });
-            return;
-        }
-
-        // Block Break & Place
-        const blockPos = intersect.object.position.clone().divideScalar(BLOCK_SIZE);
-
-        if (event.button === 0) {
-            // Left click: Break
-            if (game.world.has(`${blockPos.x},${blockPos.y},${blockPos.z}`)) {
-                send({ type: 'blockRemoved', x: blockPos.x, y: blockPos.y, z: blockPos.z });
+        // Check Animal or Player Melee Attack
+        const targets = [
+            ...Array.from(game.animals.values(), a => a.model),
+            ...Array.from(game.otherPlayers.values(), p => p.model)
+        ];
+        const mobIntersects = game.raycaster.intersectObjects(targets, true);
+        if (mobIntersects.length > 0) {
+            let root = mobIntersects[0].object;
+            while (root.parent && root.parent !== game.scene) root = root.parent;
+            if (root.userData.animal) {
+                send({ type: 'animalHit', id: root.userData.animal });
+                playSound('hit', 'meat');
+                triggerSwing();
+                isMining = false;
+                return;
             }
-        } else if (event.button === 2) {
-            // Right click: Place
+            if (root.userData.player) {
+                if (game.player.pvp) {
+                    send({ type: 'playerHit', id: root.userData.player });
+                    playSound('hit', 'meat');
+                } else {
+                    showNotice('Your PvP is OFF! Press P to enable.');
+                }
+                triggerSwing();
+                isMining = false;
+                return;
+            }
+        }
+    } else if (event.button === 2) {
+        // Right Click: Place Block
+        game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
+        game.raycaster.far = 5;
+        const blockIntersects = game.raycaster.intersectObjects(Array.from(game.world.values()).filter(m => m.visible), true);
+
+        if (blockIntersects.length > 0) {
+            const intersect = blockIntersects[0];
+            const blockPos = intersect.object.position.clone().divideScalar(BLOCK_SIZE);
             const normal = intersect.face.normal;
             const newPos = blockPos.clone().add(normal);
             const playerPos = game.camera.position.clone().divideScalar(BLOCK_SIZE).floor();
 
             if (!(newPos.x === playerPos.x && (newPos.y === playerPos.y || newPos.y === playerPos.y - 1) && newPos.z === playerPos.z)) {
+                playSound('place', game.player.selectedBlock);
+                triggerSwing();
                 send({
                     type: 'blockPlaced',
                     x: newPos.x,
@@ -901,74 +1455,112 @@ function onMouseDown(event) {
     }
 }
 
+function onMouseUp(event) {
+    if (event.button === 0) {
+        isMining = false;
+        miningProgress = 0;
+        miningTarget = null;
+        const progressEl = document.getElementById('mining-progress');
+        if (progressEl) progressEl.style.display = 'none';
+    }
+}
+
 // ==========================================
-// 13. PHYSICS & PLAYER MOVEMENT
+// 14. PHYSICS & FLYING MOVEMENT
 // ==========================================
 function updatePlayer(delta) {
     if (!ready) return;
 
-    const speed = 9.5;
-    const jumpSpeed = 8.5;
-    const gravity = 22;
+    if (game.player.isFlying) {
+        // Creative Flying Flight Mode
+        const flySpeed = 16;
+        const moveDir = new THREE.Vector3();
 
-    game.player.velocity.y -= gravity * delta;
-
-    const moveDirection = new THREE.Vector3();
-    if (game.controls.isLocked && game.keys['KeyW']) moveDirection.z -= 1;
-    if (game.controls.isLocked && game.keys['KeyS']) moveDirection.z += 1;
-    if (game.controls.isLocked && game.keys['KeyA']) moveDirection.x -= 1;
-    if (game.controls.isLocked && game.keys['KeyD']) moveDirection.x += 1;
-
-    moveDirection.normalize();
-    moveDirection.multiplyScalar(speed * delta);
-
-    const forward = new THREE.Vector3();
-    game.camera.getWorldDirection(forward);
-    forward.y = 0;
-    forward.normalize();
-
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
-
-    const movement = new THREE.Vector3();
-    movement.addScaledVector(forward, -moveDirection.z);
-    movement.addScaledVector(right, moveDirection.x);
-
-    const newPos = game.camera.position.clone().add(movement);
-    if (!checkCollision(newPos)) {
-        game.camera.position.add(movement);
-    }
-
-    // Jump
-    if (game.controls.isLocked && game.keys['Space'] && game.player.onGround) {
-        game.player.velocity.y = jumpSpeed;
-        game.player.onGround = false;
-    }
-
-    // Vertical fall & fall damage
-    const verticalMovement = game.player.velocity.y * delta;
-    peak = Math.max(peak, game.camera.position.y);
-    const newVerticalPos = game.camera.position.clone();
-    newVerticalPos.y += verticalMovement;
-
-    if (checkCollision(newVerticalPos)) {
-        if (game.player.velocity.y < 0) {
-            if (!game.player.onGround) {
-                const fallDist = peak - game.camera.position.y;
-                if (fallDist > 3.5) damage(Math.floor(fallDist - 3));
-                game.player.onGround = true;
-                peak = game.camera.position.y;
-            }
+        if (game.controls.isLocked) {
+            if (game.keys['KeyW']) moveDir.z -= 1;
+            if (game.keys['KeyS']) moveDir.z += 1;
+            if (game.keys['KeyA']) moveDir.x -= 1;
+            if (game.keys['KeyD']) moveDir.x += 1;
+            if (game.keys['Space']) moveDir.y += 1; // Ascend
+            if (game.keys['ShiftLeft'] || game.keys['ShiftRight']) moveDir.y -= 1; // Descend
         }
-        game.player.velocity.y = 0;
+
+        const forward = new THREE.Vector3();
+        game.camera.getWorldDirection(forward);
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+        const move = new THREE.Vector3();
+        move.addScaledVector(forward, -moveDir.z * flySpeed * delta);
+        move.addScaledVector(right, moveDir.x * flySpeed * delta);
+        move.y += moveDir.y * flySpeed * delta;
+
+        game.camera.position.add(move);
+        game.player.velocity.set(0, 0, 0);
+
     } else {
-        game.player.onGround = false;
-        game.camera.position.y += verticalMovement;
+        // Survival Walking & Falling Physics
+        const speed = 9.5;
+        const jumpSpeed = 8.5;
+        const gravity = 22;
+
+        game.player.velocity.y -= gravity * delta;
+
+        const moveDirection = new THREE.Vector3();
+        if (game.controls.isLocked && game.keys['KeyW']) moveDirection.z -= 1;
+        if (game.controls.isLocked && game.keys['KeyS']) moveDirection.z += 1;
+        if (game.controls.isLocked && game.keys['KeyA']) moveDirection.x -= 1;
+        if (game.controls.isLocked && game.keys['KeyD']) moveDirection.x += 1;
+
+        moveDirection.normalize();
+        moveDirection.multiplyScalar(speed * delta);
+
+        const forward = new THREE.Vector3();
+        game.camera.getWorldDirection(forward);
+        forward.y = 0;
+        forward.normalize();
+
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+
+        const movement = new THREE.Vector3();
+        movement.addScaledVector(forward, -moveDirection.z);
+        movement.addScaledVector(right, moveDirection.x);
+
+        const newPos = game.camera.position.clone().add(movement);
+        if (!checkCollision(newPos)) {
+            game.camera.position.add(movement);
+        }
+
+        // Jump
+        if (game.controls.isLocked && game.keys['Space'] && game.player.onGround) {
+            game.player.velocity.y = jumpSpeed;
+            game.player.onGround = false;
+        }
+
+        // Vertical fall & fall damage
+        const verticalMovement = game.player.velocity.y * delta;
+        peak = Math.max(peak, game.camera.position.y);
+        const newVerticalPos = game.camera.position.clone();
+        newVerticalPos.y += verticalMovement;
+
+        if (checkCollision(newVerticalPos)) {
+            if (game.player.velocity.y < 0) {
+                if (!game.player.onGround) {
+                    const fallDist = peak - game.camera.position.y;
+                    if (fallDist > 3.5) damage(Math.floor(fallDist - 3));
+                    game.player.onGround = true;
+                    peak = game.camera.position.y;
+                }
+            }
+            game.player.velocity.y = 0;
+        } else {
+            game.player.onGround = false;
+            game.camera.position.y += verticalMovement;
+        }
+
+        if (game.camera.position.y < -20) damage(20);
     }
 
-    if (game.camera.position.y < -20) damage(20);
-
-    // World Boundaries
+    // World Boundaries (64x64)
     game.camera.position.x = Math.max(0, Math.min(WORLD_WIDTH * BLOCK_SIZE, game.camera.position.x));
     game.camera.position.z = Math.max(0, Math.min(WORLD_DEPTH * BLOCK_SIZE, game.camera.position.z));
 
@@ -1001,7 +1593,7 @@ function checkCollision(position) {
 }
 
 // ==========================================
-// 14. NETWORKING & SYNC
+// 15. NETWORKING & SYNC
 // ==========================================
 function connectToServer() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1081,6 +1673,12 @@ function handleServerMessage(message) {
             break;
         }
 
+        case 'playerPvp': {
+            const p = game.otherPlayers.get(message.playerId);
+            if (p) p.pvp = message.pvp;
+            break;
+        }
+
         case 'playerJoined':
             addOtherPlayer(message.player);
             break;
@@ -1108,7 +1706,7 @@ function handleServerMessage(message) {
 }
 
 // ==========================================
-// 15. MAIN ANIMATION LOOP
+// 16. MAIN ANIMATION LOOP
 // ==========================================
 const clock = new THREE.Clock();
 
@@ -1129,11 +1727,6 @@ function animate() {
 
     // Rotate Sky & Clouds slowly
     if (game.clouds) game.clouds.position.x = (performance.now() * 0.001) % 16;
-    timeOfDay += delta * 0.02;
-    if (game.sun) {
-        game.sun.position.x = Math.cos(timeOfDay) * 100;
-        game.sun.position.y = Math.sin(timeOfDay) * 100;
-    }
 
     game.renderer.render(game.scene, game.camera);
 }
@@ -1145,7 +1738,7 @@ function onWindowResize() {
 }
 
 document.addEventListener('contextmenu', e => e.preventDefault());
-window.addEventListener('blur', () => { game.keys = {}; });
+window.addEventListener('blur', () => { game.keys = {}; isMining = false; });
 
 // Start the game!
 init();

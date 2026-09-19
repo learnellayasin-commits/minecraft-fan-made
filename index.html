@@ -245,13 +245,36 @@
             border: 2px solid #333;
             border-radius: 4px;
         }
+
+        #mining-progress {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, 20px);
+            width: 48px;
+            height: 6px;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid #fff;
+            display: none;
+            z-index: 10;
+            pointer-events: none;
+        }
+        #mining-bar {
+            height: 100%;
+            width: 0%;
+            background: #55ff55;
+        }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
+    <div id="mining-progress"><div id="mining-bar"></div></div>
 
     <div id="top-bar">
         <div class="mc-panel" id="status-panel">Connecting to world...</div>
+        <div class="mc-panel" id="mode-panel">Mode: Survival</div>
+        <button class="mc-btn" id="pvp-btn" style="width:auto; padding:6px 14px; font-size:16px; margin:0; pointer-events:auto;">PvP: ON</button>
+        <button class="mc-btn" id="gamemode-btn" style="width:auto; padding:6px 14px; font-size:16px; margin:0; pointer-events:auto;">Switch to Creative</button>
     </div>
 
     <div id="notice">Notice</div>
@@ -271,12 +294,15 @@
         <div class="title-logo">Minecraft</div>
         <button class="mc-btn" id="play-btn">Play Game</button>
         <div class="instructions-list">
-            <div><strong>W A S D</strong> - Walk around</div>
-            <div><strong>Space</strong> - Jump</div>
-            <div><strong>Left Click</strong> - Hit / Mine block (punch)</div>
+            <div><strong>W A S D</strong> - Walk around / Fly in Creative</div>
+            <div><strong>Space</strong> - Jump / Double-tap Space to Fly</div>
+            <div><strong>Shift</strong> - Descend in flight</div>
+            <div><strong>Left Click (Hold)</strong> - Mine block (harder deep underground!) / Hit mobs</div>
             <div><strong>Right Click</strong> - Place selected block</div>
             <div><strong>1 - 5</strong> - Select block in hotbar</div>
             <div><strong>E</strong> - Eat meat to restore hunger</div>
+            <div><strong>P</strong> - Toggle PvP On/Off</div>
+            <div><strong>C</strong> - Switch Survival / Creative Mode</div>
             <div><strong>ESC</strong> - Pause / release mouse</div>
         </div>
     </div>

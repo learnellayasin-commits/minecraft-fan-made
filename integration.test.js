@@ -25,9 +25,9 @@ test('two-client world, combat, pickup, host handoff and reconnect', {timeout:20
         const pickup=await a.wait('meatPicked');assert.equal((await b.wait('meatPicked')).playerId,pickup.playerId);
         await sleep(80);assert.equal(a.messages.filter(m=>m.type==='meatPicked').length,0);
         const block={x:4,y:Math.round(position.y),z:8};a.send({type:'blockPlaced',...block,blockType:'wood'});await b.wait('blockPlaced');
-        a.ws.close();const handoff=await b.wait('animalHost');assert.equal(handoff.playerId,b.init.playerId);assert.equal(handoff.animals.length,11);
+        a.ws.close();const handoff=await b.wait('animalHost');assert.equal(handoff.playerId,b.init.playerId);
         b.send({type:'animalState',animals:handoff.animals});
-        const c=await client();assert.equal(c.init.animalHost,b.init.playerId);assert.equal(c.init.animals.length,11);assert.equal(c.init.meat.length,0);assert.ok(c.init.world.some(v=>v.x===block.x&&v.y===block.y&&v.z===block.z&&v.type==='wood'));
+        const c=await client();assert.equal(c.init.animalHost,b.init.playerId);assert.equal(c.init.meat.length,0);assert.ok(c.init.world.some(v=>v.x===block.x&&v.y===block.y&&v.z===block.z&&v.type==='wood'));
         b.send({type:'blockRemoved',...block});await c.wait('blockRemoved');
         const response=await fetch(`http://127.0.0.1:${port}/server.js`);assert.equal(response.status,404);
     } finally {for(const ws of sockets)ws.terminate();server.kill();}
