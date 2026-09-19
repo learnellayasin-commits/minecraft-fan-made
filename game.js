@@ -188,7 +188,8 @@ const blockMaterials = {
         new THREE.MeshLambertMaterial({ map: textures.woodSide }),
         new THREE.MeshLambertMaterial({ map: textures.woodSide })
     ],
-    sand: new THREE.MeshLambertMaterial({ map: textures.sand })
+    sand: new THREE.MeshLambertMaterial({ map: textures.sand }),
+    leaves: new THREE.MeshLambertMaterial({ map: textures.leaves, transparent: true })
 };
 
 // ==========================================
@@ -319,6 +320,34 @@ function playSound(type, material = 'stone') {
         gain.connect(audioCtx.destination);
         osc.start(t);
         osc.stop(t + 0.09);
+
+    } else if (type === 'step') {
+        // Footstep sound
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(70 + Math.random() * 30, t);
+        osc.frequency.exponentialRampToValueAtTime(20, t + 0.05);
+
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.06);
+
+    } else if (type === 'hurt') {
+        // Classic Minecraft OOF/Hurt sound
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.linearRampToValueAtTime(80, t + 0.12);
+
+        gain.gain.setValueAtTime(0.4, t);
+        gain.gain.linearRampToValueAtTime(0.01, t + 0.12);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.13);
     }
 }
 
@@ -331,7 +360,7 @@ const WORLD_DEPTH = 128;
 const WORLD_HEIGHT = 24;
 const RENDER_DISTANCE = 96;
 
-const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand'];
+const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand', 'leaves'];
 
 const game = {
     scene: null,
@@ -379,6 +408,34 @@ let miningTarget = null;
 let miningProgress = 0;
 let isMining = false;
 let lastMineHitSound = 0;
+
+let lastStepTime = 0;
+let isChatOpen = false;
+
+function addChatMessage(user, text) {
+    const msgContainer = document.getElementById('chat-messages');
+    if (!msgContainer) return;
+    const msg = document.createElement('div');
+    msg.className = 'chat-msg';
+    msg.innerHTML = `<strong>&lt;${user}&gt;</strong> ${text}`;
+    msgContainer.appendChild(msg);
+    if (msgContainer.children.length > 5) {
+        msgContainer.removeChild(msgContainer.firstChild);
+    }
+    setTimeout(() => {
+        if (msg.parentNode) msg.parentNode.removeChild(msg);
+    }, 8000);
+}
+
+function flashDamage() {
+    const el = document.getElementById('damage-flash');
+    if (el) {
+        el.style.opacity = '1';
+        setTimeout(() => {
+            el.style.opacity = '0';
+        }, 120);
+    }
+}
 
 const meatDrops = new Map();
 const meatGeometry = new THREE.BoxGeometry(0.35, 0.35, 0.35);
@@ -446,10 +503,10 @@ function updateHud() {
             </div>
         `;
     });
-    // Meat Slot (6)
+    // Meat Slot (7)
     hotbarHtml += `
         <div class="hotbar-slot">
-            <span class="slot-key">6</span>
+            <span class="slot-key">7</span>
             <div class="slot-icon" style="background: #a82e2e; border: 1px solid #111; border-radius: 4px;"></div>
             <span class="slot-count">${game.meat}</span>
         </div>
@@ -479,6 +536,7 @@ function getBlockColorPreview(type) {
         case 'stone': return '#7d7d7d';
         case 'wood': return '#675231';
         case 'sand': return '#dcd695';
+        case 'leaves': return '#308020';
         default: return '#fff';
     }
 }
@@ -1139,6 +1197,8 @@ function respawn() {
 function damage(amount) {
     if (game.player.isCreative) return; // Invulnerable in Creative
     game.health = Math.max(0, game.health - amount);
+    playSound('hurt');
+    flashDamage();
     updateHud();
     if (game.health <= 0) {
         respawn();
@@ -1357,6 +1417,29 @@ function updateMining(delta) {
 }
 
 function onKeyDown(event) {
+    // Multiplayer Chat Handling
+    if (event.code === 'Enter') {
+        const chatInput = document.getElementById('chat-input');
+        if (isChatOpen) {
+            const text = chatInput.value.trim();
+            if (text.length > 0) {
+                send({ type: 'chat', text });
+            }
+            chatInput.value = '';
+            chatInput.style.display = 'none';
+            isChatOpen = false;
+            if (ready) game.controls.lock();
+        } else {
+            isChatOpen = true;
+            chatInput.style.display = 'block';
+            chatInput.focus();
+            game.controls.unlock();
+        }
+        return;
+    }
+
+    if (isChatOpen) return; // Prevent game keys while typing in chat
+
     game.keys[event.code] = true;
 
     // Double-tap Space for Creative Flight
@@ -1393,12 +1476,13 @@ function onKeyDown(event) {
         }
     }
 
-    // Hotbar Selection 1-5
+    // Hotbar Selection 1-6
     if (event.code === 'Digit1') selectBlock('grass');
     if (event.code === 'Digit2') selectBlock('dirt');
     if (event.code === 'Digit3') selectBlock('stone');
     if (event.code === 'Digit4') selectBlock('wood');
     if (event.code === 'Digit5') selectBlock('sand');
+    if (event.code === 'Digit6') selectBlock('leaves');
 }
 
 function selectBlock(type) {
@@ -1547,6 +1631,13 @@ function updatePlayer(delta) {
         const newPos = game.camera.position.clone().add(movement);
         if (!checkCollision(newPos)) {
             game.camera.position.add(movement);
+            // Footstep sound when moving on ground
+            if (game.player.onGround && movement.lengthSq() > 0.0001) {
+                if (performance.now() - lastStepTime > 340) {
+                    lastStepTime = performance.now();
+                    playSound('step');
+                }
+            }
         }
 
         // Jump
@@ -1712,6 +1803,10 @@ function handleServerMessage(message) {
                 player.targetPosition = message.position;
                 player.targetRotation = message.rotation;
             }
+            break;
+
+        case 'chat':
+            addChatMessage(message.username || 'Player', message.message || '');
             break;
 
         case 'blockPlaced':

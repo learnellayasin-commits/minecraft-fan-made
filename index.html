@@ -267,11 +267,73 @@
             width: 0%;
             background: #55ff55;
         }
+
+        /* Hurt Flash Overlay */
+        #damage-flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(255, 0, 0, 0.4);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease-out;
+            z-index: 15;
+        }
+
+        /* Chat Window */
+        #chat-container {
+            position: absolute;
+            bottom: 75px;
+            left: 18px;
+            width: 320px;
+            z-index: 14;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
+        #chat-messages {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-height: 140px;
+            overflow-y: hidden;
+            font-size: 16px;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .chat-msg {
+            background: rgba(0, 0, 0, 0.55);
+            padding: 3px 6px;
+            border-radius: 2px;
+            width: fit-content;
+        }
+
+        #chat-input {
+            background: rgba(0, 0, 0, 0.75);
+            border: 2px solid #555;
+            color: #fff;
+            padding: 4px 8px;
+            font-family: inherit;
+            font-size: 16px;
+            display: none;
+            pointer-events: auto;
+            outline: none;
+        }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
     <div id="mining-progress"><div id="mining-bar"></div></div>
+    <div id="damage-flash"></div>
+
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <input type="text" id="chat-input" placeholder="Press Enter to send chat..." maxlength="120">
+    </div>
 
     <div id="top-bar">
         <div class="mc-panel" id="status-panel">Connecting to world...</div>
@@ -302,7 +364,8 @@
             <div><strong>Shift</strong> - Descend in flight</div>
             <div><strong>Left Click (Hold)</strong> - Mine block (harder deep underground!) / Hit mobs</div>
             <div><strong>Right Click</strong> - Place selected block</div>
-            <div><strong>1 - 5</strong> - Select block in hotbar</div>
+            <div><strong>1 - 6</strong> - Select block in hotbar (Leaves included!)</div>
+            <div><strong>Enter</strong> - Open Chat / Send message</div>
             <div><strong>E</strong> - Eat meat to restore hunger</div>
             <div><strong>P</strong> - Toggle PvP On/Off</div>
             <div><strong>C</strong> - Switch Survival / Creative Mode</div>

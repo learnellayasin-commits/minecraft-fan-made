@@ -40,6 +40,37 @@ function initializeWorld() {
             });
         }
     }
+
+    // Procedural Oak Trees across the 128x128 world
+    for (let x = 4; x < WORLD_SIZE - 4; x += 8) {
+        for (let z = 4; z < WORLD_SIZE - 4; z += 8) {
+            const rx = x + Math.floor(Math.sin(x * 12 + z) * 3);
+            const rz = z + Math.floor(Math.cos(z * 12 + x) * 3);
+            if (rx < 3 || rx >= WORLD_SIZE - 3 || rz < 3 || rz >= WORLD_SIZE - 3) continue;
+
+            const groundHeight = Math.floor(10 + Math.sin(rx / 10) * 5 + Math.cos(rz / 10) * 5 + Math.sin((rx+rz)/16)*3);
+            const trunkH = 4;
+
+            // Wood Trunk
+            for (let ty = 1; ty <= trunkH; ty++) {
+                gameState.world.set(`${rx},${groundHeight + ty},${rz}`, { x: rx, y: groundHeight + ty, z: rz, type: 'wood' });
+            }
+
+            // Leaves Canopy
+            for (let lx = -2; lx <= 2; lx++) {
+                for (let lz = -2; lz <= 2; lz++) {
+                    for (let ly = trunkH - 1; ly <= trunkH + 1; ly++) {
+                        if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === trunkH + 1) continue;
+                        if (lx === 0 && lz === 0 && ly <= trunkH) continue; // Trunk takes center
+                        const k = `${rx + lx},${groundHeight + ly},${rz + lz}`;
+                        if (!gameState.world.has(k)) {
+                            gameState.world.set(k, { x: rx + lx, y: groundHeight + ly, z: rz + lz, type: 'leaves' });
+                        }
+                    }
+                }
+            }
+        }
+    }
     gameState.worldGenerated = true;
     
     // Spawn 24 starting mobs across the huge 128x128 map
@@ -172,7 +203,7 @@ function handleMessage(playerId, message) {
     if (message.type === 'blockPlaced' || message.type === 'blockRemoved') {
         if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=128 || message.z<0 || message.z>=128 || message.y<0 || message.y>64) return;
         if (Math.hypot(message.x-player.position.x,message.y-player.position.y,message.z-player.position.z)>10) return;
-        if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand'].includes(message.blockType)) return;
+        if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand','leaves'].includes(message.blockType)) return;
     }
 
     switch (message.type) {
