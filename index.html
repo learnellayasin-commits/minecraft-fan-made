@@ -295,6 +295,126 @@
             pointer-events: none;
         }
 
+        /* Full Minecraft Survival Inventory & Crafting GUI (Q key) */
+        #inventory-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.65);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 30;
+            user-select: none;
+        }
+
+        #inventory-gui {
+            background: #c6c6c6;
+            border: 3px solid #373737;
+            box-shadow: inset 3px 3px 0 #ffffff, inset -3px -3px 0 #555555, 0 8px 24px rgba(0,0,0,0.8);
+            width: 440px;
+            padding: 16px;
+            color: #3f3f3f;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            border-radius: 4px;
+        }
+
+        .inv-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .inv-top-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #8b8b8b;
+            padding: 12px;
+            border: 2px solid #373737;
+            box-shadow: inset -2px -2px 0 #ffffff, inset 2px 2px 0 #373737;
+        }
+
+        #player-preview-canvas {
+            width: 120px;
+            height: 140px;
+            background: #000;
+            border: 2px solid #373737;
+            box-shadow: inset 2px 2px 0 #000, inset -2px -2px 0 #555;
+            image-rendering: pixelated;
+        }
+
+        .crafting-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .crafting-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 40px);
+            gap: 4px;
+        }
+
+        .crafting-arrow {
+            font-size: 28px;
+            color: #373737;
+        }
+
+        .grid-slot {
+            width: 40px;
+            height: 40px;
+            background: #8b8b8b;
+            border: 2px solid #373737;
+            box-shadow: inset -2px -2px 0 #ffffff, inset 2px 2px 0 #373737;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .grid-slot:hover {
+            background: #a0a0a0;
+        }
+
+        .inv-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 40px);
+            gap: 4px;
+            justify-content: center;
+        }
+
+        /* Floating Drag Item */
+        #drag-icon {
+            position: fixed;
+            pointer-events: none;
+            width: 36px;
+            height: 36px;
+            z-index: 100;
+            display: none;
+        }
+        #drag-count {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            font-size: 16px;
+            color: #ffffff;
+            text-shadow: 2px 2px #000;
+        }
+            width: 320px;
+            z-index: 14;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            pointer-events: none;
+        }
+
         #chat-messages {
             display: flex;
             flex-direction: column;
@@ -326,7 +446,43 @@
     </style>
 </head>
 <body>
-    <div id="crosshair"></div>
+    <div id="drag-icon">
+        <div id="drag-preview" class="slot-icon" style="width:36px; height:36px;"></div>
+        <span id="drag-count"></span>
+    </div>
+
+    <div id="inventory-screen">
+        <div id="inventory-gui">
+            <div class="inv-header">
+                <span>Crafting</span>
+                <span style="cursor:pointer;" id="close-inv-btn">✕</span>
+            </div>
+
+            <div class="inv-top-section">
+                <canvas id="player-preview-canvas"></canvas>
+                <div class="crafting-section">
+                    <div class="crafting-grid" id="craft-input-grid">
+                        <div class="grid-slot" data-craft-slot="0"></div>
+                        <div class="grid-slot" data-craft-slot="1"></div>
+                        <div class="grid-slot" data-craft-slot="2"></div>
+                        <div class="grid-slot" data-craft-slot="3"></div>
+                    </div>
+                    <div class="crafting-arrow">➜</div>
+                    <div class="grid-slot" id="craft-output-slot" style="width:48px; height:48px;"></div>
+                </div>
+            </div>
+
+            <div class="inv-header"><span>Inventory</span></div>
+            <div class="inv-grid" id="main-inv-grid">
+                <!-- 27 slots generated dynamically -->
+            </div>
+
+            <div class="inv-header"><span>Hotbar</span></div>
+            <div class="inv-grid" id="hotbar-inv-grid">
+                <!-- 9 hotbar slots generated dynamically -->
+            </div>
+        </div>
+    </div>
     <div id="mining-progress"><div id="mining-bar"></div></div>
     <div id="damage-flash"></div>
 
@@ -364,9 +520,10 @@
             <div><strong>Shift</strong> - Descend in flight</div>
             <div><strong>Left Click (Hold)</strong> - Mine block (harder deep underground!) / Hit mobs</div>
             <div><strong>Right Click</strong> - Place selected block</div>
-            <div><strong>1 - 6</strong> - Select block in hotbar (Leaves included!)</div>
+            <div><strong>1 - 9</strong> - Select hotbar slot</div>
+            <div><strong>Q</strong> - Open / Close Inventory & Crafting GUI (Live 3D character)</div>
             <div><strong>Enter</strong> - Open Chat / Send message</div>
-            <div><strong>E</strong> - Eat meat to restore hunger</div>
+            <div><strong>E</strong> - Eat held food/meat to restore hunger</div>
             <div><strong>P</strong> - Toggle PvP On/Off</div>
             <div><strong>C</strong> - Switch Survival / Creative Mode</div>
             <div><strong>ESC</strong> - Pause / release mouse</div>

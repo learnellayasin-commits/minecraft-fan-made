@@ -81,6 +81,36 @@ const textures = {
         return [Math.floor(220 * v * speck), Math.floor(214 * v * speck), Math.floor(149 * v * speck)];
     }).texture,
 
+    // Wood Planks
+    planks: createNoiseCanvas(16, 16, (x, y) => {
+        const plankLine = (y % 4 === 0) ? 0.7 : 1.0;
+        const v = rand(0.9, 1.1) * plankLine;
+        return [Math.floor(180 * v), Math.floor(140 * v), Math.floor(90 * v)];
+    }).texture,
+
+    // Stick Texture
+    stick: createNoiseCanvas(16, 16, (x, y) => {
+        if (Math.abs(x - (15 - y)) <= 1 && y >= 2 && y <= 13) {
+            return [120, 85, 45, 255];
+        }
+        return [0, 0, 0, 0];
+    }).texture,
+
+    // Crafting Table
+    craftingTableSide: createNoiseCanvas(16, 16, (x, y) => {
+        const v = rand(0.9, 1.1);
+        if (y >= 4 && y <= 12 && x >= 4 && x <= 12) {
+            return [140, 100, 60]; // Tool carvings
+        }
+        return [Math.floor(160 * v), Math.floor(120 * v), Math.floor(70 * v)];
+    }).texture,
+
+    craftingTableTop: createNoiseCanvas(16, 16, (x, y) => {
+        const grid = (x % 5 === 0 || y % 5 === 0) ? 0.75 : 1.0;
+        const v = rand(0.9, 1.1) * grid;
+        return [Math.floor(190 * v), Math.floor(150 * v), Math.floor(95 * v)];
+    }).texture,
+
     // Steve Skin
     steveFace: createNoiseCanvas(16, 16, (x, y) => {
         if (y === 8 && (x === 4 || x === 11)) return [255, 255, 255];
@@ -189,7 +219,16 @@ const blockMaterials = {
         new THREE.MeshLambertMaterial({ map: textures.woodSide })
     ],
     sand: new THREE.MeshLambertMaterial({ map: textures.sand }),
-    leaves: new THREE.MeshLambertMaterial({ map: textures.leaves, transparent: true })
+    leaves: new THREE.MeshLambertMaterial({ map: textures.leaves, transparent: true }),
+    planks: new THREE.MeshLambertMaterial({ map: textures.planks }),
+    craftingTable: [
+        new THREE.MeshLambertMaterial({ map: textures.craftingTableSide }),
+        new THREE.MeshLambertMaterial({ map: textures.craftingTableSide }),
+        new THREE.MeshLambertMaterial({ map: textures.craftingTableTop }),
+        new THREE.MeshLambertMaterial({ map: textures.planks }),
+        new THREE.MeshLambertMaterial({ map: textures.craftingTableSide }),
+        new THREE.MeshLambertMaterial({ map: textures.craftingTableSide })
+    ]
 };
 
 // ==========================================
@@ -360,7 +399,130 @@ const WORLD_DEPTH = 128;
 const WORLD_HEIGHT = 24;
 const RENDER_DISTANCE = 96;
 
-const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand', 'leaves'];
+const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand', 'leaves', 'planks', 'craftingTable', 'stick', 'meat'];
+
+// Inventory Slots (0 to 8: Hotbar, 9 to 35: Main Inventory, Crafting: 4 inputs + 1 output)
+const playerInventory = Array.from({ length: 36 }, () => null);
+const craftingGrid = [null, null, null, null];
+let craftOutput = null;
+let draggedItem = null;
+let selectedHotbarIndex = 0;
+let isInventoryOpen = false;
+
+// 3D Player Preview in Inventory GUI
+let previewScene, previewCamera, previewRenderer, previewPlayerMesh;
+
+function initPlayerPreview() {
+    const canvas = document.getElementById('player-preview-canvas');
+    if (!canvas) return;
+    previewRenderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+    previewRenderer.setSize(120, 140);
+
+    previewScene = new THREE.Scene();
+    previewCamera = new THREE.PerspectiveCamera(50, 120 / 140, 0.1, 100);
+    previewCamera.position.set(0, 1.0, 3.2);
+
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(2, 4, 3);
+    previewScene.add(light);
+    previewScene.add(new THREE.AmbientLight(0xffffff, 0.8));
+
+    previewPlayerMesh = createSteveModel(true);
+    previewPlayerMesh.position.set(0, -0.3, 0);
+    previewScene.add(previewPlayerMesh);
+}
+
+function renderPlayerPreview() {
+    if (!previewRenderer || !isInventoryOpen) return;
+    if (previewPlayerMesh) {
+        previewPlayerMesh.rotation.y = performance.now() * 0.0015;
+    }
+    previewRenderer.render(previewScene, previewCamera);
+}
+
+function addToInventory(itemType, count = 1) {
+    if (!itemType) return false;
+    // 1. Try stacking into existing non-full slots (max 64)
+    for (let i = 0; i < 36; i++) {
+        if (playerInventory[i] && playerInventory[i].type === itemType && playerInventory[i].count < 64) {
+            const add = Math.min(count, 64 - playerInventory[i].count);
+            playerInventory[i].count += add;
+            count -= add;
+            if (count <= 0) {
+                updateHud();
+                updateInventoryUI();
+                updateHeldItemMesh();
+                return true;
+            }
+        }
+    }
+    // 2. Try placing in empty slots
+    for (let i = 0; i < 36; i++) {
+        if (!playerInventory[i]) {
+            const add = Math.min(count, 64);
+            playerInventory[i] = { type: itemType, count: add };
+            count -= add;
+            if (count <= 0) {
+                updateHud();
+                updateInventoryUI();
+                updateHeldItemMesh();
+                return true;
+            }
+        }
+    }
+    updateHud();
+    updateInventoryUI();
+    updateHeldItemMesh();
+    return count <= 0;
+}
+
+// 2x2 Crafting Logic
+function updateCrafting() {
+    const [c0, c1, c2, c3] = craftingGrid;
+    craftOutput = null;
+
+    // 1 Wood Log -> 4 Planks
+    const woodCount = [c0, c1, c2, c3].filter(c => c && c.type === 'wood').length;
+    const totalFilled = [c0, c1, c2, c3].filter(c => c !== null).length;
+
+    if (woodCount === 1 && totalFilled === 1) {
+        craftOutput = { type: 'planks', count: 4 };
+    }
+    // 2 Planks vertically -> 4 Sticks
+    else if (((c0 && c0.type === 'planks' && c2 && c2.type === 'planks') || (c1 && c1.type === 'planks' && c3 && c3.type === 'planks')) && totalFilled === 2) {
+        craftOutput = { type: 'stick', count: 4 };
+    }
+    // 4 Planks in 2x2 -> 1 Crafting Table
+    else if (c0 && c0.type === 'planks' && c1 && c1.type === 'planks' && c2 && c2.type === 'planks' && c3 && c3.type === 'planks' && totalFilled === 4) {
+        craftOutput = { type: 'craftingTable', count: 1 };
+    }
+
+    renderCraftingUI();
+}
+
+function takeCraftOutput() {
+    if (!craftOutput) return;
+    if (draggedItem) {
+        if (draggedItem.type === craftOutput.type && draggedItem.count + craftOutput.count <= 64) {
+            draggedItem.count += craftOutput.count;
+        } else {
+            return;
+        }
+    } else {
+        draggedItem = { ...craftOutput };
+    }
+
+    // Decrement recipe ingredients
+    for (let i = 0; i < 4; i++) {
+        if (craftingGrid[i]) {
+            craftingGrid[i].count--;
+            if (craftingGrid[i].count <= 0) craftingGrid[i] = null;
+        }
+    }
+    updateCrafting();
+    updateInventoryUI();
+    updateDragIcon();
+}
 
 const game = {
     scene: null,
@@ -371,9 +533,10 @@ const game = {
     player: {
         velocity: new THREE.Vector3(),
         onGround: false,
-        selectedBlock: 'grass',
+        selectedBlock: null,
         handGroup: null,
         armMesh: null,
+        heldItemMesh: null,
         swingProgress: 0,
         isSwinging: false,
         isFlying: false,
@@ -468,6 +631,59 @@ function getHungerSvg(filled) {
     return `<svg viewBox="0 0 9 9" class="stat-icon"><path d="M3,0 h3 v1 h2 v3 h-1 v2 h-1 v1 h-2 v-1 h-1 v-1 h-1 v-3 h1 v-1 h-1 v-1 h1 z" fill="#000"/><path d="M4,1 h2 v1 h1 v2 h-1 v1 h-1 v1 h-1 z" fill="#c4782b"/><path d="M5,1 h1 v2 h-1 z" fill="#e89e4f"/><circle cx="2" cy="7" r="1" fill="#dedede"/><circle cx="1" cy="6" r="1" fill="#dedede"/></svg>`;
 }
 
+function getBlockColorPreview(type) {
+    switch (type) {
+        case 'grass': return '#58a636';
+        case 'dirt': return '#866043';
+        case 'stone': return '#7d7d7d';
+        case 'wood': return '#675231';
+        case 'sand': return '#dcd695';
+        case 'leaves': return '#308020';
+        case 'planks': return '#b48a56';
+        case 'stick': return '#78552d';
+        case 'craftingTable': return '#a67b45';
+        case 'meat': return '#a82e2e';
+        default: return 'transparent';
+    }
+}
+
+// 3D In-Hand Held Item Mesh attached to Steve's Arm
+function updateHeldItemMesh() {
+    if (!game.player.handGroup) return;
+
+    if (game.player.heldItemMesh) {
+        game.player.handGroup.remove(game.player.heldItemMesh);
+        game.player.heldItemMesh = null;
+    }
+
+    const currentItem = playerInventory[selectedHotbarIndex];
+    game.player.selectedBlock = currentItem ? currentItem.type : null;
+
+    if (!currentItem) return;
+
+    if (currentItem.type === 'meat') {
+        const meat = new THREE.Mesh(meatGeometry, meatMaterial);
+        meat.position.set(0.2, -0.2, -0.7);
+        meat.rotation.set(0.4, 0.4, 0);
+        game.player.handGroup.add(meat);
+        game.player.heldItemMesh = meat;
+    } else if (currentItem.type === 'stick') {
+        const stickGeom = new THREE.BoxGeometry(0.06, 0.5, 0.06);
+        const stickMesh = new THREE.Mesh(stickGeom, new THREE.MeshLambertMaterial({ color: 0x78552d }));
+        stickMesh.position.set(0.25, -0.15, -0.65);
+        stickMesh.rotation.set(-0.3, 0.2, 0.4);
+        game.player.handGroup.add(stickMesh);
+        game.player.heldItemMesh = stickMesh;
+    } else {
+        const mat = blockMaterials[currentItem.type] || blockMaterials.dirt;
+        const block = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), mat);
+        block.position.set(0.22, -0.2, -0.65);
+        block.rotation.set(0.3, 0.4, 0.1);
+        game.player.handGroup.add(block);
+        game.player.heldItemMesh = block;
+    }
+}
+
 function updateHud() {
     const vitalsEl = document.getElementById('vitals');
     if (game.player.isCreative) {
@@ -491,26 +707,19 @@ function updateHud() {
         document.getElementById('hunger-bar').innerHTML = hungerHtml;
     }
 
-    // 3. Hotbar Slots
+    // 3. 9-Slot Minecraft Hotbar
     const hotbarEl = document.getElementById('hotbar');
     let hotbarHtml = '';
-    blockNames.forEach((blockName, index) => {
-        const isSelected = game.player.selectedBlock === blockName;
+    for (let i = 0; i < 9; i++) {
+        const item = playerInventory[i];
+        const isSelected = selectedHotbarIndex === i;
         hotbarHtml += `
-            <div class="hotbar-slot ${isSelected ? 'selected' : ''}">
-                <span class="slot-key">${index + 1}</span>
-                <div class="slot-icon" style="background: ${getBlockColorPreview(blockName)}; border: 1px solid #111;"></div>
+            <div class="hotbar-slot ${isSelected ? 'selected' : ''}" data-hotbar="${i}">
+                <span class="slot-key">${i + 1}</span>
+                ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)}; border: 1px solid #111;"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
             </div>
         `;
-    });
-    // Meat Slot (7)
-    hotbarHtml += `
-        <div class="hotbar-slot">
-            <span class="slot-key">7</span>
-            <div class="slot-icon" style="background: #a82e2e; border: 1px solid #111; border-radius: 4px;"></div>
-            <span class="slot-count">${game.meat}</span>
-        </div>
-    `;
+    }
     hotbarEl.innerHTML = hotbarHtml;
 
     // 4. Mode Panel & Buttons
@@ -529,15 +738,178 @@ function updateHud() {
     }
 }
 
-function getBlockColorPreview(type) {
-    switch (type) {
-        case 'grass': return '#58a636';
-        case 'dirt': return '#866043';
-        case 'stone': return '#7d7d7d';
-        case 'wood': return '#675231';
-        case 'sand': return '#dcd695';
-        case 'leaves': return '#308020';
-        default: return '#fff';
+// Render Full Inventory Grid & Dragging UI
+function updateInventoryUI() {
+    const mainGrid = document.getElementById('main-inv-grid');
+    const hotbarGrid = document.getElementById('hotbar-inv-grid');
+    if (!mainGrid || !hotbarGrid) return;
+
+    // 27 Main inventory slots (index 9 to 35)
+    let mainHtml = '';
+    for (let i = 9; i < 36; i++) {
+        const item = playerInventory[i];
+        mainHtml += `
+            <div class="grid-slot" data-slot="${i}">
+                ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
+            </div>
+        `;
+    }
+    mainGrid.innerHTML = mainHtml;
+
+    // 9 Hotbar slots (index 0 to 8)
+    let hotbarHtml = '';
+    for (let i = 0; i < 9; i++) {
+        const item = playerInventory[i];
+        hotbarHtml += `
+            <div class="grid-slot" data-slot="${i}">
+                ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
+            </div>
+        `;
+    }
+    hotbarGrid.innerHTML = hotbarHtml;
+
+    renderCraftingUI();
+    attachSlotListeners();
+}
+
+function renderCraftingUI() {
+    const craftGrid = document.getElementById('craft-input-grid');
+    const outputSlot = document.getElementById('craft-output-slot');
+    if (!craftGrid || !outputSlot) return;
+
+    let craftHtml = '';
+    for (let i = 0; i < 4; i++) {
+        const item = craftingGrid[i];
+        craftHtml += `
+            <div class="grid-slot" data-craft="${i}">
+                ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
+            </div>
+        `;
+    }
+    craftGrid.innerHTML = craftHtml;
+
+    outputSlot.innerHTML = craftOutput ? `
+        <div class="slot-icon" style="width:32px; height:32px; background: ${getBlockColorPreview(craftOutput.type)};"></div>
+        <span class="slot-count" style="font-size:18px;">${craftOutput.count > 1 ? craftOutput.count : ''}</span>
+    ` : '';
+
+    attachSlotListeners();
+}
+
+function attachSlotListeners() {
+    // Inventory slot click / drag handling
+    document.querySelectorAll('[data-slot]').forEach(el => {
+        el.onclick = (e) => {
+            e.stopPropagation();
+            const slotIdx = parseInt(el.getAttribute('data-slot'));
+            handleSlotClick(slotIdx, 'inventory');
+        };
+    });
+
+    // Crafting input slots
+    document.querySelectorAll('[data-craft]').forEach(el => {
+        el.onclick = (e) => {
+            e.stopPropagation();
+            const craftIdx = parseInt(el.getAttribute('data-craft'));
+            handleSlotClick(craftIdx, 'crafting');
+        };
+    });
+
+    // Craft output slot
+    const outputSlot = document.getElementById('craft-output-slot');
+    if (outputSlot) {
+        outputSlot.onclick = (e) => {
+            e.stopPropagation();
+            takeCraftOutput();
+        };
+    }
+}
+
+function handleSlotClick(idx, container) {
+    const targetArray = container === 'inventory' ? playerInventory : craftingGrid;
+    const currentSlot = targetArray[idx];
+
+    if (!draggedItem) {
+        if (currentSlot) {
+            draggedItem = { ...currentSlot };
+            targetArray[idx] = null;
+        }
+    } else {
+        if (!currentSlot) {
+            targetArray[idx] = { ...draggedItem };
+            draggedItem = null;
+        } else if (currentSlot.type === draggedItem.type && currentSlot.count < 64) {
+            const add = Math.min(draggedItem.count, 64 - currentSlot.count);
+            currentSlot.count += add;
+            draggedItem.count -= add;
+            if (draggedItem.count <= 0) draggedItem = null;
+        } else {
+            // Swap items
+            const temp = { ...currentSlot };
+            targetArray[idx] = { ...draggedItem };
+            draggedItem = temp;
+        }
+    }
+
+    if (container === 'crafting') updateCrafting();
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+    updateDragIcon();
+}
+
+function updateDragIcon() {
+    const dragEl = document.getElementById('drag-icon');
+    const dragPreview = document.getElementById('drag-preview');
+    const dragCount = document.getElementById('drag-count');
+
+    if (!draggedItem) {
+        if (dragEl) dragEl.style.display = 'none';
+        return;
+    }
+
+    if (dragEl && dragPreview && dragCount) {
+        dragEl.style.display = 'block';
+        dragPreview.style.background = getBlockColorPreview(draggedItem.type);
+        dragCount.textContent = draggedItem.count > 1 ? draggedItem.count : '';
+    }
+}
+
+document.addEventListener('mousemove', (e) => {
+    const dragEl = document.getElementById('drag-icon');
+    if (dragEl && isInventoryOpen && draggedItem) {
+        dragEl.style.left = `${e.clientX - 18}px`;
+        dragEl.style.top = `${e.clientY - 18}px`;
+    }
+});
+
+function toggleInventory() {
+    const invScreen = document.getElementById('inventory-screen');
+    isInventoryOpen = !isInventoryOpen;
+
+    if (isInventoryOpen) {
+        invScreen.style.display = 'flex';
+        game.controls.unlock();
+        updateInventoryUI();
+        renderPlayerPreview();
+    } else {
+        invScreen.style.display = 'none';
+        // Return crafted/dragged items back to inventory if closed
+        if (draggedItem) {
+            addToInventory(draggedItem.type, draggedItem.count);
+            draggedItem = null;
+            updateDragIcon();
+        }
+        for (let i = 0; i < 4; i++) {
+            if (craftingGrid[i]) {
+                addToInventory(craftingGrid[i].type, craftingGrid[i].count);
+                craftingGrid[i] = null;
+            }
+        }
+        updateCrafting();
+        updateHud();
+        updateHeldItemMesh();
+        if (ready) game.controls.lock();
     }
 }
 
@@ -728,6 +1100,7 @@ function init() {
     createSelectionOutline();
     game.scene.add(game.camera);
     createFirstPersonArm();
+    initPlayerPreview();
 
     // Controls
     game.controls = new PointerLockControls(game.camera, document.body);
@@ -748,11 +1121,17 @@ function init() {
     });
 
     startScreen.addEventListener('click', (e) => {
-        // If user clicks anywhere on the pause/start overlay (except interactive sub-elements if any)
         if (e.target === startScreen || e.target.classList.contains('title-logo') || e.target.classList.contains('instructions-list')) {
             lockGame();
         }
     });
+
+    const closeInvBtn = document.getElementById('close-inv-btn');
+    if (closeInvBtn) {
+        closeInvBtn.addEventListener('click', () => {
+            toggleInventory();
+        });
+    }
 
     game.controls.addEventListener('lock', () => {
         startScreen.style.display = 'none';
@@ -834,6 +1213,8 @@ function removeBlock(x, y, z) {
     const block = game.world.get(key);
     if (block) {
         playSound('break', block.userData.blockType);
+        // Add collected block item into player's inventory
+        addToInventory(block.userData.blockType, 1);
         game.scene.remove(block);
         game.world.delete(key);
         cull(x, y, z);
@@ -1191,7 +1572,15 @@ function respawn() {
     game.health = 20;
     game.hunger = 20;
     game.meat = 0;
+    // Clear inventory on death/fresh spawn
+    for (let i = 0; i < 36; i++) playerInventory[i] = null;
+    for (let i = 0; i < 4; i++) craftingGrid[i] = null;
+    craftOutput = null;
+    draggedItem = null;
+    updateCrafting();
+    updateInventoryUI();
     updateHud();
+    updateHeldItemMesh();
 }
 
 function damage(amount) {
@@ -1349,6 +1738,7 @@ function survival(delta) {
         m.rotation.y += delta * 2;
         if (pickupClock >= 0.3 && m.position.distanceTo(game.camera.position) < 2.5) {
             showNotice('Picked up Raw Porkchop!');
+            addToInventory('meat', 1);
             send({ type: 'meatPickup', id });
             break;
         }
@@ -1464,25 +1854,35 @@ function onKeyDown(event) {
         togglePvP();
     }
 
-    // Eating Meat (E key)
+    // Open Inventory & Crafting GUI (Q key)
+    if (event.code === 'KeyQ' && !event.repeat) {
+        toggleInventory();
+        return;
+    }
+
+    // Eating Food / Meat (E key)
     if (event.code === 'KeyE' && !event.repeat && ready && game.controls.isLocked) {
-        if (game.meat > 0 && game.hunger < 20) {
-            game.meat--;
+        const held = playerInventory[selectedHotbarIndex];
+        if (held && held.type === 'meat' && game.hunger < 20) {
+            held.count--;
+            if (held.count <= 0) playerInventory[selectedHotbarIndex] = null;
             game.hunger = Math.min(20, game.hunger + 6);
             playSound('eat');
-            showNotice('Ate meat (+6 Hunger)');
+            showNotice('Ate porkchop (+6 Hunger)');
             triggerSwing();
             updateHud();
+            updateHeldItemMesh();
         }
     }
 
-    // Hotbar Selection 1-6
-    if (event.code === 'Digit1') selectBlock('grass');
-    if (event.code === 'Digit2') selectBlock('dirt');
-    if (event.code === 'Digit3') selectBlock('stone');
-    if (event.code === 'Digit4') selectBlock('wood');
-    if (event.code === 'Digit5') selectBlock('sand');
-    if (event.code === 'Digit6') selectBlock('leaves');
+    // Hotbar Selection 1-9
+    for (let d = 1; d <= 9; d++) {
+        if (event.code === `Digit${d}`) {
+            selectedHotbarIndex = d - 1;
+            updateHud();
+            updateHeldItemMesh();
+        }
+    }
 }
 
 function selectBlock(type) {
@@ -1531,7 +1931,10 @@ function onMouseDown(event) {
             }
         }
     } else if (event.button === 2) {
-        // Right Click: Place Block
+        // Right Click: Place Block if holding a placeable block in active hotbar slot
+        const held = playerInventory[selectedHotbarIndex];
+        if (!held || held.type === 'meat' || held.type === 'stick') return;
+
         game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
         game.raycaster.far = 5;
         const blockIntersects = game.raycaster.intersectObjects(Array.from(game.world.values()).filter(m => m.visible), true);
@@ -1544,14 +1947,20 @@ function onMouseDown(event) {
             const playerPos = game.camera.position.clone().divideScalar(BLOCK_SIZE).floor();
 
             if (!(newPos.x === playerPos.x && (newPos.y === playerPos.y || newPos.y === playerPos.y - 1) && newPos.z === playerPos.z)) {
-                playSound('place', game.player.selectedBlock);
+                playSound('place', held.type);
                 triggerSwing();
+                if (!game.player.isCreative) {
+                    held.count--;
+                    if (held.count <= 0) playerInventory[selectedHotbarIndex] = null;
+                    updateHud();
+                    updateHeldItemMesh();
+                }
                 send({
                     type: 'blockPlaced',
                     x: newPos.x,
                     y: newPos.y,
                     z: newPos.z,
-                    blockType: game.player.selectedBlock
+                    blockType: held.type
                 });
             }
         }
@@ -1838,6 +2247,7 @@ function animate() {
     updateArmSwing(delta);
     updateSelectionOutline();
     survival(delta);
+    renderPlayerPreview();
 
     // Rotate Sky & Clouds slowly
     if (game.clouds) game.clouds.position.x = (performance.now() * 0.001) % 16;
