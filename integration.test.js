@@ -11,7 +11,7 @@ test('two-client world, combat, pickup, host handoff and reconnect', {timeout:20
         await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);server.once('exit',code=>reject(new Error(`Server exit ${code}`)));});
         async function client(){const ws=new WebSocket(`ws://127.0.0.1:${port}`);sockets.push(ws);const messages=[];ws.on('message',d=>messages.push(JSON.parse(d)));const wait=async(type,predicate=()=>true)=>{for(let i=0;i<100;i++){const index=messages.findIndex(m=>m.type===type&&predicate(m));if(index>=0)return messages.splice(index,1)[0];await sleep(20);}throw new Error(`Timeout ${type}`);};return {ws,messages,wait,send:m=>ws.send(JSON.stringify(m)),init:await wait('init')};}
         const a=await client(),b=await client();
-        assert.deepEqual(a.init.world,b.init.world);assert.equal(a.init.animals.length,12);assert.equal(b.init.animalHost,a.init.playerId);
+        assert.deepEqual(a.init.world,b.init.world);assert.equal(a.init.animals.length,24);assert.equal(b.init.animalHost,a.init.playerId);
         const animal={...a.init.animals[0],x:4};
         b.send({type:'animalState',animals:[{...animal,x:20}]});await sleep(80);assert.equal(a.messages.some(m=>m.type==='animalState'),false);
         a.send({type:'animalState',animals:[animal]});assert.equal((await b.wait('animalState')).animals[0].x,4);

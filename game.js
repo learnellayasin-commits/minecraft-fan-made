@@ -326,10 +326,10 @@ function playSound(type, material = 'stone') {
 // 3. GAME STATE & CONSTANTS
 // ==========================================
 const BLOCK_SIZE = 1;
-const WORLD_WIDTH = 64; // EXPANDED WORLD!
-const WORLD_DEPTH = 64;
-const WORLD_HEIGHT = 16;
-const RENDER_DISTANCE = 64;
+const WORLD_WIDTH = 128; // HUGE EXPANDED WORLD!
+const WORLD_DEPTH = 128;
+const WORLD_HEIGHT = 24;
+const RENDER_DISTANCE = 96;
 
 const blockNames = ['grass', 'dirt', 'stone', 'wood', 'sand'];
 
@@ -499,11 +499,11 @@ function createMinecraftClouds() {
     const cloudGroup = new THREE.Group();
     const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
     
-    for (let x = -120; x <= 120; x += 16) {
-        for (let z = -120; z <= 120; z += 16) {
+    for (let x = -200; x <= 200; x += 16) {
+        for (let z = -200; z <= 200; z += 16) {
             if (Math.random() > 0.45) {
                 const cloud = new THREE.Mesh(new THREE.BoxGeometry(16, 2, 16), cloudMat);
-                cloud.position.set(x, 42, z);
+                cloud.position.set(x, 48, z);
                 cloudGroup.add(cloud);
             }
         }
@@ -1126,7 +1126,7 @@ function send(m) {
 }
 
 function respawn() {
-    game.camera.position.set(32, surface(32, 32) + 1.82, 32);
+    game.camera.position.set(64, surface(64, 64) + 1.82, 64);
     game.player.velocity.set(0, 0, 0);
     game.player.onGround = false;
     peak = game.camera.position.y;
@@ -1158,16 +1158,16 @@ function survival(delta) {
 
     // Sun & Moon Positions
     if (game.sun) {
-        game.sun.position.x = Math.cos(sunAngle) * 150;
-        game.sun.position.y = Math.sin(sunAngle) * 150;
-        game.sun.position.z = 32;
-        game.sun.lookAt(32, 0, 32);
+        game.sun.position.x = 64 + Math.cos(sunAngle) * 180;
+        game.sun.position.y = Math.sin(sunAngle) * 180;
+        game.sun.position.z = 64;
+        game.sun.lookAt(64, 0, 64);
     }
     if (game.moon) {
-        game.moon.position.x = Math.cos(sunAngle + Math.PI) * 150;
-        game.moon.position.y = Math.sin(sunAngle + Math.PI) * 150;
-        game.moon.position.z = 32;
-        game.moon.lookAt(32, 0, 32);
+        game.moon.position.x = 64 + Math.cos(sunAngle + Math.PI) * 180;
+        game.moon.position.y = Math.sin(sunAngle + Math.PI) * 180;
+        game.moon.position.z = 64;
+        game.moon.lookAt(64, 0, 64);
     }
 
     // Sky & Lighting Transition (Day = Blue / Night = Deep Dark Midnight)
@@ -1248,7 +1248,7 @@ function survival(delta) {
                 }
                 const x = a.x + Math.sin(a.angle) * delta * 0.7;
                 const z = a.z + Math.cos(a.angle) * delta * 0.7;
-                if (x < 1 || x > 62 || z < 1 || z > 62 || Math.abs(surface(x, z) - a.y) > 1.1) {
+                if (x < 1 || x > 126 || z < 1 || z > 126 || Math.abs(surface(x, z) - a.y) > 1.1) {
                     a.angle += Math.PI;
                 } else {
                     a.x = x;
@@ -1298,7 +1298,7 @@ function survival(delta) {
     // Status Panel
     const timeDisplay = isNight ? '🌙 Night' : '☀️ Day';
     document.getElementById('status-panel').textContent =
-        `World: 64x64 | ${timeDisplay} | Players: ${game.otherPlayers.size + 1}/8`;
+        `World: 128x128 | ${timeDisplay} | Players: ${game.otherPlayers.size + 1}/8`;
 }
 
 function updateMining(delta) {
@@ -1579,7 +1579,7 @@ function updatePlayer(delta) {
         if (game.camera.position.y < -20) damage(20);
     }
 
-    // World Boundaries (64x64)
+    // Keep player in bounds
     game.camera.position.x = Math.max(0, Math.min(WORLD_WIDTH * BLOCK_SIZE, game.camera.position.x));
     game.camera.position.z = Math.max(0, Math.min(WORLD_DEPTH * BLOCK_SIZE, game.camera.position.z));
 

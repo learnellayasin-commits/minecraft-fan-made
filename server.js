@@ -9,7 +9,7 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
+const wss = new WebSocketServer({ server, maxPayload: 262144, perMessageDeflate: false });
 
 const PORT = process.env.PORT || 3000;
 
@@ -27,12 +27,12 @@ const gameState = {
     worldVersion: 0
 };
 
-const WORLD_SIZE = 64;
+const WORLD_SIZE = 128;
 
 function initializeWorld() {
     if (gameState.worldGenerated) return;
     for (let x = 0; x < WORLD_SIZE; x++) for (let z = 0; z < WORLD_SIZE; z++) {
-        const height = Math.floor(8 + Math.sin(x / 7) * 3 + Math.cos(z / 7) * 3 + Math.sin((x+z)/12)*2);
+        const height = Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x+z)/16)*3);
         for (let y = 0; y <= height; y++) {
             gameState.world.set(`${x},${y},${z}`, {
                 x, y, z,
@@ -42,12 +42,12 @@ function initializeWorld() {
     }
     gameState.worldGenerated = true;
     
-    // Spawn 12 starting mobs (Pigs, Zombies, Skeletons, Creepers)
-    const mobTypes = ['pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'zombie', 'zombie', 'skeleton', 'skeleton', 'creeper', 'creeper'];
-    for (let i = 0; i < 12; i++) {
-        const x = 6 + (i * 4) % 52;
-        const z = 8 + (i * 7) % 50;
-        const y = Math.floor(8 + Math.sin(x / 7) * 3 + Math.cos(z / 7) * 3 + Math.sin((x+z)/12)*2) + 1;
+    // Spawn 24 starting mobs across the huge 128x128 map
+    const mobTypes = ['pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'pig', 'zombie', 'zombie', 'zombie', 'zombie', 'skeleton', 'skeleton', 'skeleton', 'skeleton', 'creeper', 'creeper', 'creeper', 'creeper', 'pig', 'pig', 'zombie', 'skeleton'];
+    for (let i = 0; i < 24; i++) {
+        const x = 12 + (i * 9) % 108;
+        const z = 14 + (i * 13) % 104;
+        const y = Math.floor(10 + Math.sin(x / 10) * 5 + Math.cos(z / 10) * 5 + Math.sin((x+z)/16)*3) + 1;
         const mobType = mobTypes[i];
         gameState.animals.set(`animal${i}`, {
             id: `animal${i}`,
@@ -63,7 +63,7 @@ class Player {
     constructor(id, ws) {
         this.id = id;
         this.ws = ws;
-        this.position = { x: 32, y: 20, z: 32 };
+        this.position = { x: 64, y: 24, z: 64 };
         this.rotation = { x: 0, y: 0 };
         this.username = `Player${id.slice(0, 4)}`;
         this.pvp = true;
@@ -170,7 +170,7 @@ function handleMessage(playerId, message) {
     if (!player) return;
     if (!message || typeof message !== 'object') return;
     if (message.type === 'blockPlaced' || message.type === 'blockRemoved') {
-        if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=64 || message.z<0 || message.z>=64 || message.y<0 || message.y>48) return;
+        if (![message.x,message.y,message.z].every(Number.isInteger) || message.x<0 || message.x>=128 || message.z<0 || message.z>=128 || message.y<0 || message.y>64) return;
         if (Math.hypot(message.x-player.position.x,message.y-player.position.y,message.z-player.position.z)>10) return;
         if (message.type==='blockPlaced' && !['grass','dirt','stone','wood','sand'].includes(message.blockType)) return;
     }
@@ -234,8 +234,8 @@ function handleMessage(playerId, message) {
             if (!gameState.animalHost) { gameState.animalHost = playerId; broadcastAll({ type: 'animalHost', playerId }); }
             break;
         case 'animalState':
-            if (playerId !== gameState.animalHost || !Array.isArray(message.animals) || message.animals.length > 64) return;
-            message.animals.forEach(a => { const old=gameState.animals.get(a.id); if (old && [a.x,a.y,a.z].every(Number.isFinite) && a.x>=0 && a.x<64 && a.z>=0 && a.z<64 && a.y>=0 && a.y<64) Object.assign(old,{x:a.x,y:a.y,z:a.z}); });
+            if (playerId !== gameState.animalHost || !Array.isArray(message.animals) || message.animals.length > 128) return;
+            message.animals.forEach(a => { const old=gameState.animals.get(a.id); if (old && [a.x,a.y,a.z].every(Number.isFinite) && a.x>=0 && a.x<128 && a.z>=0 && a.z<128 && a.y>=0 && a.y<64) Object.assign(old,{x:a.x,y:a.y,z:a.z}); });
             broadcast(playerId, { type: 'animalState', animals: Array.from(gameState.animals.values()) });
             break;
         case 'animalHit':
