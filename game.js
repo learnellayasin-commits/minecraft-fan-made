@@ -677,9 +677,23 @@ function init() {
     const startScreen = document.getElementById('start-screen');
     const playBtn = document.getElementById('play-btn');
 
-    playBtn.addEventListener('click', () => {
+    function lockGame() {
         initAudio();
-        if (ready) game.controls.lock();
+        if (ready) {
+            game.controls.lock();
+        }
+    }
+
+    playBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        lockGame();
+    });
+
+    startScreen.addEventListener('click', (e) => {
+        // If user clicks anywhere on the pause/start overlay (except interactive sub-elements if any)
+        if (e.target === startScreen || e.target.classList.contains('title-logo') || e.target.classList.contains('instructions-list')) {
+            lockGame();
+        }
     });
 
     game.controls.addEventListener('lock', () => {
@@ -687,6 +701,11 @@ function init() {
     });
 
     game.controls.addEventListener('unlock', () => {
+        isMining = false;
+        miningProgress = 0;
+        miningTarget = null;
+        const progressEl = document.getElementById('mining-progress');
+        if (progressEl) progressEl.style.display = 'none';
         startScreen.style.display = 'flex';
     });
 
