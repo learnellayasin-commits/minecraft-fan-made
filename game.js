@@ -198,6 +198,13 @@ const textures = {
         return [Math.floor(25 * v), Math.floor(150 * v), Math.floor(25 * v)];
     }).texture,
 
+    // Tree Leaves (Green)
+    leaves: createNoiseCanvas(16, 16, (x, y) => {
+        const v = rand(0.75, 1.2);
+        const dark = Math.random() < 0.2 ? 0.75 : 1.0;
+        return [Math.floor(40 * v * dark), Math.floor(130 * v * dark), Math.floor(30 * v * dark)];
+    }).texture,
+
     // Raw Meat Texture
     meatItem: createNoiseCanvas(16, 16, (x, y) => {
         const dist = Math.hypot(x - 7.5, y - 7.5);
@@ -252,7 +259,7 @@ const blockMaterials = {
         new THREE.MeshLambertMaterial({ map: textures.woodSide })
     ],
     sand: new THREE.MeshLambertMaterial({ map: textures.sand }),
-    leaves: new THREE.MeshLambertMaterial({ map: textures.leaves, transparent: true }),
+    leaves: new THREE.MeshLambertMaterial({ map: textures.leaves }),
     planks: new THREE.MeshLambertMaterial({ map: textures.planks }),
     craftingTable: [
         new THREE.MeshLambertMaterial({ map: textures.craftingTableSide }),
@@ -445,6 +452,13 @@ const playerInventory = Array.from({ length: 36 }, () => null);
 const craftingGrid = [null, null, null, null];
 let craftOutput = null;
 let draggedItem = null;
+let cursorOrigin = null;
+let inventoryGesture = null;
+let lastInventoryClick = null;
+let cursorClientX = 0;
+let cursorClientY = 0;
+let lastInventoryInput = 'mouse';
+const MAX_STACK_SIZE = 64;
 let selectedHotbarIndex = 0;
 let isInventoryOpen = false;
 
@@ -481,10 +495,11 @@ function renderPlayerPreview() {
 
 function addToInventory(itemType, count = 1) {
     if (!itemType) return false;
+    if (!canAddToInventory(itemType, count)) return false;
     // 1. Try stacking into existing non-full slots (max 64)
     for (let i = 0; i < 36; i++) {
-        if (playerInventory[i] && playerInventory[i].type === itemType && playerInventory[i].count < 64) {
-            const add = Math.min(count, 64 - playerInventory[i].count);
+        if (playerInventory[i] && playerInventory[i].type === itemType && playerInventory[i].count < MAX_STACK_SIZE) {
+            const add = Math.min(count, MAX_STACK_SIZE - playerInventory[i].count);
             playerInventory[i].count += add;
             count -= add;
             if (count <= 0) {
@@ -498,7 +513,7 @@ function addToInventory(itemType, count = 1) {
     // 2. Try placing in empty slots
     for (let i = 0; i < 36; i++) {
         if (!playerInventory[i]) {
-            const add = Math.min(count, 64);
+            const add = Math.min(count, MAX_STACK_SIZE);
             playerInventory[i] = { type: itemType, count: add };
             count -= add;
             if (count <= 0) {
@@ -513,6 +528,70 @@ function addToInventory(itemType, count = 1) {
     updateInventoryUI();
     updateHeldItemMesh();
     return count <= 0;
+}
+
+function canAddToInventory(itemType, count = 1) {
+    if (!itemType || !Number.isInteger(count) || count < 0) return false;
+    const simulated = playerInventory.map(stack => stack ? { ...stack } : null);
+    let remaining = count;
+    for (const stack of simulated) {
+        if (!stack || stack.type !== itemType || stack.count >= MAX_STACK_SIZE) continue;
+        const moved = Math.min(remaining, MAX_STACK_SIZE - stack.count);
+        stack.count += moved;
+        remaining -= moved;
+        if (!remaining) return true;
+    }
+    for (let index = 0; index < simulated.length && remaining > 0; index++) {
+        if (simulated[index]) continue;
+        const moved = Math.min(remaining, MAX_STACK_SIZE);
+        simulated[index] = { type: itemType, count: moved };
+        remaining -= moved;
+    }
+    return remaining === 0;
+}
+
+function getInventorySlot(element) {
+    if (!element) return null;
+    const slot = element.closest('[data-slot], [data-craft], #craft-output-slot');
+    if (!slot) return null;
+    if (slot.hasAttribute('data-slot')) return { element: slot, kind: 'inventory', index: Number(slot.dataset.slot) };
+    if (slot.hasAttribute('data-craft')) return { element: slot, kind: 'crafting', index: Number(slot.dataset.craft) };
+    return { element: slot, kind: 'output', index: 0 };
+}
+
+function getSlotStack(slot) {
+    if (slot.kind === 'inventory') return playerInventory[slot.index];
+    if (slot.kind === 'crafting') return craftingGrid[slot.index];
+    return craftOutput;
+}
+
+function setSlotStack(slot, stack) {
+    if (slot.kind === 'inventory') playerInventory[slot.index] = stack;
+    else if (slot.kind === 'crafting') craftingGrid[slot.index] = stack;
+}
+
+function canPlaceInSlot(slot, stack) {
+    if (!stack || slot.kind === 'output') return false;
+    if (slot.kind === 'inventory') return slot.index >= 0 && slot.index < playerInventory.length;
+    if (slot.kind === 'crafting') return slot.index >= 0 && slot.index < craftingGrid.length;
+    return true;
+}
+
+function slotCapacity(slot, stack) {
+    if (!canPlaceInSlot(slot, stack)) return 0;
+    const current = getSlotStack(slot);
+    if (current && current.type !== stack.type) return 0;
+    return MAX_STACK_SIZE - (current?.count || 0);
+}
+
+function refreshInventoryState() {
+    if (inventoryGesture?.dragged) clearDragPreview();
+    if (inventoryGesture) inventoryGesture = null;
+    if (craftingGrid.some(Boolean)) updateCrafting();
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+    updateDragIcon();
 }
 
 // 2x2 Crafting Logic
@@ -568,7 +647,7 @@ const game = {
     camera: null,
     renderer: null,
     controls: null,
-    world: new Map(),
+    chunks: new Map(),
     blockTypes: new Map(),
     player: {
         velocity: new THREE.Vector3(),
@@ -783,13 +862,15 @@ function updateInventoryUI() {
     const mainGrid = document.getElementById('main-inv-grid');
     const hotbarGrid = document.getElementById('hotbar-inv-grid');
     if (!mainGrid || !hotbarGrid) return;
+    const activeSlot = document.activeElement?.closest?.('[data-slot], [data-craft]');
+    const focusTarget = activeSlot ? { kind: activeSlot.hasAttribute('data-slot') ? 'inventory' : 'crafting', index: Number(activeSlot.dataset.slot ?? activeSlot.dataset.craft) } : null;
 
     // 27 Main inventory slots (index 9 to 35)
     let mainHtml = '';
     for (let i = 9; i < 36; i++) {
         const item = playerInventory[i];
         mainHtml += `
-            <div class="grid-slot" data-slot="${i}">
+            <div class="grid-slot" data-slot="${i}" tabindex="0" role="gridcell" aria-label="${item ? `${item.count} ${item.type}` : 'Empty inventory slot'}">
                 ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
             </div>
         `;
@@ -801,7 +882,7 @@ function updateInventoryUI() {
     for (let i = 0; i < 9; i++) {
         const item = playerInventory[i];
         hotbarHtml += `
-            <div class="grid-slot" data-slot="${i}">
+            <div class="grid-slot ${selectedHotbarIndex === i ? 'selected' : ''}" data-slot="${i}" tabindex="0" role="gridcell" aria-label="Hotbar ${i + 1}${item ? `, ${item.count} ${item.type}` : ', empty'}">
                 ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
             </div>
         `;
@@ -810,6 +891,10 @@ function updateInventoryUI() {
 
     renderCraftingUI();
     attachSlotListeners();
+    if (isInventoryOpen && focusTarget) {
+        const selector = focusTarget.kind === 'inventory' ? `[data-slot="${focusTarget.index}"]` : `[data-craft="${focusTarget.index}"]`;
+        document.querySelector(selector)?.focus({ preventScroll: true });
+    }
 }
 
 function renderCraftingUI() {
@@ -821,13 +906,17 @@ function renderCraftingUI() {
     for (let i = 0; i < 4; i++) {
         const item = craftingGrid[i];
         craftHtml += `
-            <div class="grid-slot" data-craft="${i}">
+            <div class="grid-slot" data-craft="${i}" tabindex="0" role="gridcell" aria-label="Crafting slot ${i + 1}${item ? `, ${item.count} ${item.type}` : ', empty'}">
                 ${item ? `<div class="slot-icon" style="background: ${getBlockColorPreview(item.type)};"></div><span class="slot-count">${item.count > 1 ? item.count : ''}</span>` : ''}
             </div>
         `;
     }
     craftGrid.innerHTML = craftHtml;
 
+    outputSlot.setAttribute('tabindex', craftOutput ? '0' : '-1');
+    outputSlot.setAttribute('role', 'button');
+    outputSlot.setAttribute('aria-label', craftOutput ? `Craft ${craftOutput.count} ${craftOutput.type}` : 'Crafting output unavailable');
+    outputSlot.classList.toggle('disabled', !craftOutput);
     outputSlot.innerHTML = craftOutput ? `
         <div class="slot-icon" style="width:32px; height:32px; background: ${getBlockColorPreview(craftOutput.type)};"></div>
         <span class="slot-count" style="font-size:18px;">${craftOutput.count > 1 ? craftOutput.count : ''}</span>
@@ -837,65 +926,400 @@ function renderCraftingUI() {
 }
 
 function attachSlotListeners() {
-    // Inventory slot click / drag handling
-    document.querySelectorAll('[data-slot]').forEach(el => {
-        el.onclick = (e) => {
-            e.stopPropagation();
-            const slotIdx = parseInt(el.getAttribute('data-slot'));
-            handleSlotClick(slotIdx, 'inventory');
-        };
+    document.querySelectorAll('[data-slot], [data-craft], #craft-output-slot').forEach(el => {
+        el.draggable = false;
     });
-
-    // Crafting input slots
-    document.querySelectorAll('[data-craft]').forEach(el => {
-        el.onclick = (e) => {
-            e.stopPropagation();
-            const craftIdx = parseInt(el.getAttribute('data-craft'));
-            handleSlotClick(craftIdx, 'crafting');
-        };
-    });
-
-    // Craft output slot
-    const outputSlot = document.getElementById('craft-output-slot');
-    if (outputSlot) {
-        outputSlot.onclick = (e) => {
-            e.stopPropagation();
-            takeCraftOutput();
-        };
-    }
 }
 
-function handleSlotClick(idx, container) {
-    const targetArray = container === 'inventory' ? playerInventory : craftingGrid;
-    const currentSlot = targetArray[idx];
-
-    if (!draggedItem) {
-        if (currentSlot) {
-            draggedItem = { ...currentSlot };
-            targetArray[idx] = null;
-        }
-    } else {
-        if (!currentSlot) {
-            targetArray[idx] = { ...draggedItem };
-            draggedItem = null;
-        } else if (currentSlot.type === draggedItem.type && currentSlot.count < 64) {
-            const add = Math.min(draggedItem.count, 64 - currentSlot.count);
-            currentSlot.count += add;
-            draggedItem.count -= add;
-            if (draggedItem.count <= 0) draggedItem = null;
-        } else {
-            // Swap items
-            const temp = { ...currentSlot };
-            targetArray[idx] = { ...draggedItem };
-            draggedItem = temp;
-        }
+function handleSlotClick(slot, button = 0, shiftKey = false) {
+    if (slot.kind === 'output') {
+        if (button === 0) takeCraftOutput();
+        return;
+    }
+    if (shiftKey && !draggedItem) {
+        quickTransfer(slot);
+        return;
     }
 
-    if (container === 'crafting') updateCrafting();
+    const current = getSlotStack(slot);
+    if (!draggedItem) {
+        if (!current) return;
+        const pickedCount = button === 2 ? Math.ceil(current.count / 2) : current.count;
+        draggedItem = { type: current.type, count: pickedCount };
+        current.count -= pickedCount;
+        if (current.count <= 0) setSlotStack(slot, null);
+        cursorOrigin = { ...slot };
+    } else if (button === 2) {
+        const capacity = slotCapacity(slot, draggedItem);
+        if (capacity > 0) {
+            if (current) current.count++;
+            else setSlotStack(slot, { type: draggedItem.type, count: 1 });
+            draggedItem.count--;
+            if (draggedItem.count <= 0) { draggedItem = null; cursorOrigin = null; }
+        }
+    } else if (!current) {
+        const placed = Math.min(draggedItem.count, MAX_STACK_SIZE);
+        setSlotStack(slot, { type: draggedItem.type, count: placed });
+        draggedItem.count -= placed;
+        if (draggedItem.count <= 0) { draggedItem = null; cursorOrigin = null; }
+    } else if (current.type === draggedItem.type) {
+        const moved = Math.min(draggedItem.count, slotCapacity(slot, draggedItem));
+        current.count += moved;
+        draggedItem.count -= moved;
+        if (draggedItem.count <= 0) { draggedItem = null; cursorOrigin = null; }
+    } else if (draggedItem.count <= MAX_STACK_SIZE) {
+        setSlotStack(slot, draggedItem);
+        draggedItem = current;
+        cursorOrigin = { ...slot };
+    }
+
+    if (slot.kind === 'crafting') updateCrafting();
     updateInventoryUI();
     updateHud();
     updateHeldItemMesh();
     updateDragIcon();
+}
+
+function quickTransfer(slot) {
+    const source = getSlotStack(slot);
+    if (!source || slot.kind === 'output') return;
+    let destinations = [];
+    if (slot.kind === 'crafting') {
+        destinations = playerInventory.map((_, index) => ({ kind: 'inventory', index }));
+    } else {
+        const start = slot.index < 9 ? 9 : 0;
+        const end = slot.index < 9 ? 36 : 9;
+        destinations = Array.from({ length: end - start }, (_, offset) => ({ kind: 'inventory', index: start + offset }));
+    }
+    let remaining = source.count;
+    for (const destination of destinations) {
+        const target = getSlotStack(destination);
+        if (!target || target.type !== source.type) continue;
+        const moved = Math.min(remaining, slotCapacity(destination, source));
+        target.count += moved;
+        remaining -= moved;
+        if (!remaining) break;
+    }
+    for (const destination of destinations) {
+        if (remaining <= 0) break;
+        if (getSlotStack(destination)) continue;
+        const moved = Math.min(remaining, MAX_STACK_SIZE);
+        setSlotStack(destination, { type: source.type, count: moved });
+        remaining -= moved;
+    }
+    if (remaining === source.count) return;
+    if (remaining <= 0) setSlotStack(slot, null);
+    else source.count = remaining;
+    if (slot.kind === 'crafting') updateCrafting();
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+}
+
+function getDragDistribution(slots, button, stack) {
+    const eligible = Array.from(slots.values()).map(slot => ({ slot, capacity: slotCapacity(slot, stack) })).filter(entry => entry.capacity > 0);
+    const distribution = new Map();
+    if (button === 2) {
+        for (const { slot } of eligible) distribution.set(slot.element, 1);
+        return distribution;
+    }
+    let remaining = stack.count;
+    let active = eligible.slice();
+    while (remaining > 0 && active.length) {
+        const evenShare = Math.floor(remaining / active.length);
+        const amount = evenShare > 0 ? evenShare : 1;
+        let placed = 0;
+        for (const entry of active) {
+            const already = distribution.get(entry.slot.element) || 0;
+            const add = Math.min(amount, entry.capacity - already, remaining);
+            if (add > 0) {
+                distribution.set(entry.slot.element, already + add);
+                remaining -= add;
+                placed += add;
+            }
+        }
+        active = active.filter(entry => (distribution.get(entry.slot.element) || 0) < entry.capacity);
+        if (!placed) break;
+    }
+    return distribution;
+}
+
+function clearDragPreview() {
+    document.querySelectorAll('.grid-slot.drag-preview').forEach(slot => {
+        slot.classList.remove('drag-preview');
+        slot.removeAttribute('data-preview-count');
+    });
+}
+
+function showDragPreview() {
+    if (!inventoryGesture?.dragged || !draggedItem) return;
+    clearDragPreview();
+    const distribution = getDragDistribution(inventoryGesture.slots, inventoryGesture.button, draggedItem);
+    for (const [element, count] of distribution) {
+        element.classList.add('drag-preview');
+        element.setAttribute('data-preview-count', String(count));
+    }
+}
+
+function applyDragDistribution() {
+    if (!inventoryGesture?.dragged || !draggedItem) return;
+    const distribution = getDragDistribution(inventoryGesture.slots, inventoryGesture.button, draggedItem);
+    for (const [element, count] of distribution) {
+        const slot = getInventorySlot(element);
+        const existing = getSlotStack(slot);
+        if (existing) existing.count += count;
+        else setSlotStack(slot, { type: draggedItem.type, count });
+        draggedItem.count -= count;
+    }
+    if (draggedItem.count <= 0) { draggedItem = null; cursorOrigin = null; }
+    if (Array.from(inventoryGesture.slots.values()).some(slot => slot.kind === 'crafting')) updateCrafting();
+    clearDragPreview();
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+    updateDragIcon();
+}
+
+function restoreCursorStack() {
+    if (!draggedItem) return;
+    let remaining = draggedItem.count;
+    const origin = cursorOrigin && { ...cursorOrigin };
+    if (origin && canPlaceInSlot(origin, draggedItem)) {
+        const current = getSlotStack(origin);
+        if (!current || current.type === draggedItem.type) {
+            const capacity = slotCapacity(origin, draggedItem);
+            const returned = Math.min(remaining, capacity);
+            if (returned) {
+                if (current) current.count += returned;
+                else setSlotStack(origin, { type: draggedItem.type, count: returned });
+                remaining -= returned;
+            }
+        }
+    }
+    for (let index = 0; index < playerInventory.length && remaining > 0; index++) {
+        const slot = { kind: 'inventory', index };
+        const current = playerInventory[index];
+        if (!current || current.type !== draggedItem.type) continue;
+        const returned = Math.min(remaining, slotCapacity(slot, draggedItem));
+        current.count += returned;
+        remaining -= returned;
+    }
+    for (let index = 0; index < playerInventory.length && remaining > 0; index++) {
+        if (playerInventory[index]) continue;
+        const returned = Math.min(remaining, MAX_STACK_SIZE);
+        playerInventory[index] = { type: draggedItem.type, count: returned };
+        remaining -= returned;
+    }
+    if (remaining <= 0) {
+        draggedItem = null;
+        cursorOrigin = null;
+    } else {
+        draggedItem.count = remaining;
+        showNotice('No room to return the held stack. Reopen inventory to continue.');
+    }
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+    updateDragIcon();
+}
+
+function canReturnOnClose(stacks) {
+    const simulated = playerInventory.map(stack => stack ? { ...stack } : null);
+    for (const stack of stacks.filter(Boolean)) {
+        let remaining = stack.count;
+        for (const slot of simulated) {
+            if (!slot || slot.type !== stack.type || slot.count >= MAX_STACK_SIZE) continue;
+            const moved = Math.min(remaining, MAX_STACK_SIZE - slot.count);
+            slot.count += moved;
+            remaining -= moved;
+            if (!remaining) break;
+        }
+        for (let index = 0; index < simulated.length && remaining > 0; index++) {
+            if (simulated[index]) continue;
+            const moved = Math.min(remaining, MAX_STACK_SIZE);
+            simulated[index] = { type: stack.type, count: moved };
+            remaining -= moved;
+        }
+        if (remaining) return false;
+    }
+    return true;
+}
+
+function storeStackInInventory(stack) {
+    let remaining = stack.count;
+    for (let index = 0; index < playerInventory.length && remaining > 0; index++) {
+        const current = playerInventory[index];
+        if (!current || current.type !== stack.type || current.count >= MAX_STACK_SIZE) continue;
+        const moved = Math.min(remaining, MAX_STACK_SIZE - current.count);
+        current.count += moved;
+        remaining -= moved;
+    }
+    for (let index = 0; index < playerInventory.length && remaining > 0; index++) {
+        if (playerInventory[index]) continue;
+        const moved = Math.min(remaining, MAX_STACK_SIZE);
+        playerInventory[index] = { type: stack.type, count: moved };
+        remaining -= moved;
+    }
+    return remaining === 0;
+}
+
+function gatherMatchingItems() {
+    if (!draggedItem) return;
+    let remaining = MAX_STACK_SIZE - draggedItem.count;
+    if (remaining <= 0) return;
+    const slots = [
+        ...playerInventory.map((_, index) => ({ kind: 'inventory', index })),
+        ...craftingGrid.map((_, index) => ({ kind: 'crafting', index }))
+    ];
+    for (const slot of slots) {
+        const stack = getSlotStack(slot);
+        if (!stack || stack.type !== draggedItem.type) continue;
+        const moved = Math.min(remaining, stack.count);
+        stack.count -= moved;
+        draggedItem.count += moved;
+        remaining -= moved;
+        if (!stack.count) setSlotStack(slot, null);
+        if (!remaining) break;
+    }
+    if (craftingGrid.some(Boolean) || craftOutput) updateCrafting();
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+    updateDragIcon();
+}
+
+function swapFocusedWithHotbar(slot, hotbarIndex) {
+    if (slot.kind !== 'inventory' || draggedItem) return;
+    const current = playerInventory[slot.index];
+    const hotbar = playerInventory[hotbarIndex];
+    if (slot.index === hotbarIndex) return;
+    playerInventory[slot.index] = hotbar;
+    playerInventory[hotbarIndex] = current;
+    updateInventoryUI();
+    updateHud();
+    updateHeldItemMesh();
+}
+
+function onInventoryPointerDown(event) {
+    if (!isInventoryOpen || (event.button !== 0 && event.button !== 2)) return;
+    cursorClientX = event.clientX;
+    cursorClientY = event.clientY;
+    lastInventoryInput = 'mouse';
+    const slot = getInventorySlot(event.target);
+    if (!slot) return;
+    event.preventDefault();
+    event.stopPropagation();
+    slot.element.focus({ preventScroll: true });
+
+    if (slot.kind === 'output') {
+        inventoryGesture = { button: event.button, start: slot, startX: event.clientX, startY: event.clientY, dragged: false, slots: new Map() };
+        return;
+    }
+
+    const now = performance.now();
+    const clickType = getSlotStack(slot)?.type || draggedItem?.type;
+    if (event.button === 0 && draggedItem && lastInventoryClick && now - lastInventoryClick.time < 360 && lastInventoryClick.type === draggedItem.type) {
+        gatherMatchingItems();
+        lastInventoryClick = null;
+        inventoryGesture = { button: event.button, start: slot, startX: event.clientX, startY: event.clientY, dragged: false, slots: new Map(), suppressClick: true };
+        return;
+    }
+
+    inventoryGesture = { button: event.button, start: slot, startX: event.clientX, startY: event.clientY, dragged: false, slots: new Map() };
+    if (draggedItem) {
+        inventoryGesture.slots.set(slot.element, slot);
+        showDragPreview();
+    }
+    inventoryGesture.clickType = clickType;
+}
+
+function onInventoryPointerMove(event) {
+    cursorClientX = event.clientX;
+    cursorClientY = event.clientY;
+    lastInventoryInput = 'mouse';
+    const gesture = inventoryGesture;
+    if (!isInventoryOpen || !gesture) return;
+    if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 4) gesture.dragged = true;
+    if (!gesture.dragged || !draggedItem) return;
+    const slot = getInventorySlot(document.elementFromPoint(event.clientX, event.clientY));
+    if (!slot || slot.kind === 'output') return;
+    if (!gesture.slots.has(slot.element)) {
+        gesture.slots.set(slot.element, slot);
+        showDragPreview();
+    }
+}
+
+function onInventoryPointerUp(event) {
+    const gesture = inventoryGesture;
+    if (!gesture) {
+        const gui = document.getElementById('inventory-gui');
+        if (isInventoryOpen && draggedItem && gui && !gui.contains(document.elementFromPoint(event.clientX, event.clientY))) restoreCursorStack();
+        return;
+    }
+    inventoryGesture = null;
+    clearDragPreview();
+    if (!isInventoryOpen) return;
+    if (gesture.suppressClick) return;
+    if (gesture.dragged && draggedItem) {
+        inventoryGesture = gesture;
+        applyDragDistribution();
+        inventoryGesture = null;
+        return;
+    }
+    const releasedSlot = getInventorySlot(document.elementFromPoint(event.clientX, event.clientY));
+    const slot = releasedSlot || gesture.start;
+    const gui = document.getElementById('inventory-gui');
+    if (!slot || (gui && !gui.contains(document.elementFromPoint(event.clientX, event.clientY)) && !releasedSlot)) {
+        restoreCursorStack();
+        return;
+    }
+    if (!gesture.start || !slot) return;
+    const previousTime = lastInventoryClick?.time || 0;
+    handleSlotClick(slot, gesture.button, event.shiftKey);
+    if (gesture.button === 0 && draggedItem && gesture.clickType === draggedItem.type && performance.now() - previousTime < 360) {
+        gatherMatchingItems();
+        lastInventoryClick = null;
+    } else {
+        lastInventoryClick = { time: performance.now(), type: gesture.clickType || draggedItem?.type || null };
+    }
+}
+
+function cancelInventoryGesture() {
+    if (!inventoryGesture) return;
+    clearDragPreview();
+    inventoryGesture = null;
+}
+
+function onInventoryKeyDown(event) {
+    if (!isInventoryOpen) return false;
+    if (event.code === 'KeyQ' || event.code === 'Escape') {
+        event.preventDefault();
+        toggleInventory();
+        return true;
+    }
+    const focusedSlot = getInventorySlot(document.activeElement);
+    if (focusedSlot && /^Digit[1-9]$/.test(event.code)) {
+        event.preventDefault();
+        swapFocusedWithHotbar(focusedSlot, Number(event.code.slice(-1)) - 1);
+        return true;
+    }
+    if (focusedSlot && (event.code === 'Enter' || event.code === 'Space')) {
+        event.preventDefault();
+        lastInventoryInput = 'keyboard';
+        if (event.shiftKey) quickTransfer(focusedSlot);
+        else handleSlotClick(focusedSlot, 0, false);
+        return true;
+    }
+    if (focusedSlot && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.code)) {
+        event.preventDefault();
+        lastInventoryInput = 'keyboard';
+        const elements = Array.from(document.querySelectorAll('[data-slot], [data-craft]')).filter(el => el.tabIndex >= 0);
+        const index = elements.indexOf(focusedSlot.element);
+        const offset = event.code === 'ArrowLeft' ? -1 : event.code === 'ArrowRight' ? 1 : event.code === 'ArrowUp' ? -9 : 9;
+        elements[(index + offset + elements.length) % elements.length]?.focus();
+        return true;
+    }
+    return true;
 }
 
 function updateDragIcon() {
@@ -903,19 +1327,33 @@ function updateDragIcon() {
     const dragPreview = document.getElementById('drag-preview');
     const dragCount = document.getElementById('drag-count');
 
-    if (!draggedItem) {
+    if (!draggedItem || !isInventoryOpen) {
         if (dragEl) dragEl.style.display = 'none';
         return;
     }
 
     if (dragEl && dragPreview && dragCount) {
         dragEl.style.display = 'block';
+        if (lastInventoryInput === 'keyboard') {
+            const focused = getInventorySlot(document.activeElement)?.element;
+            const rect = focused?.getBoundingClientRect();
+            if (rect) {
+                dragEl.style.left = `${rect.left + rect.width / 2 - 18}px`;
+                dragEl.style.top = `${rect.top + rect.height / 2 - 18}px`;
+            }
+        } else {
+            dragEl.style.left = `${cursorClientX - 18}px`;
+            dragEl.style.top = `${cursorClientY - 18}px`;
+        }
         dragPreview.style.background = getBlockColorPreview(draggedItem.type);
         dragCount.textContent = draggedItem.count > 1 ? draggedItem.count : '';
     }
 }
 
 document.addEventListener('mousemove', (e) => {
+    cursorClientX = e.clientX;
+    cursorClientY = e.clientY;
+    lastInventoryInput = 'mouse';
     const dragEl = document.getElementById('drag-icon');
     if (dragEl && isInventoryOpen && draggedItem) {
         dragEl.style.left = `${e.clientX - 18}px`;
@@ -925,30 +1363,35 @@ document.addEventListener('mousemove', (e) => {
 
 function toggleInventory() {
     const invScreen = document.getElementById('inventory-screen');
-    isInventoryOpen = !isInventoryOpen;
-
-    if (isInventoryOpen) {
+    if (!isInventoryOpen) {
+        isInventoryOpen = true;
         invScreen.style.display = 'flex';
         game.controls.unlock();
         updateInventoryUI();
         renderPlayerPreview();
+        document.querySelector(`[data-slot="${selectedHotbarIndex}"]`)?.focus({ preventScroll: true });
     } else {
-        invScreen.style.display = 'none';
-        // Return crafted/dragged items back to inventory if closed
-        if (draggedItem) {
-            addToInventory(draggedItem.type, draggedItem.count);
-            draggedItem = null;
-            updateDragIcon();
+        cancelInventoryGesture();
+        const returning = [...(draggedItem ? [{ ...draggedItem }] : []), ...craftingGrid.filter(Boolean).map(stack => ({ ...stack }))];
+        if (!canReturnOnClose(returning)) {
+            showNotice('Make room in your inventory before closing.');
+            return;
         }
-        for (let i = 0; i < 4; i++) {
-            if (craftingGrid[i]) {
-                addToInventory(craftingGrid[i].type, craftingGrid[i].count);
-                craftingGrid[i] = null;
-            }
+        if (draggedItem) {
+            storeStackInInventory(draggedItem);
+            draggedItem = null;
+            cursorOrigin = null;
+        }
+        for (let i = 0; i < craftingGrid.length; i++) {
+            if (craftingGrid[i]) storeStackInInventory(craftingGrid[i]);
+            craftingGrid[i] = null;
         }
         updateCrafting();
+        isInventoryOpen = false;
+        invScreen.style.display = 'none';
         updateHud();
         updateHeldItemMesh();
+        updateDragIcon();
         if (ready) game.controls.lock();
     }
 }
@@ -1094,8 +1537,8 @@ function updateSelectionOutline() {
     const intersects = game.raycaster.intersectObjects(getWorldMeshes());
 
     if (intersects.length > 0) {
-        const block = intersects[0].object;
-        game.selectionBox.position.copy(block.position);
+        const b = blockFromHit(intersects[0]);
+        game.selectionBox.position.set(b.x, b.y, b.z);
         game.selectionBox.visible = true;
     } else {
         game.selectionBox.visible = false;
@@ -1204,6 +1647,10 @@ function init() {
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('pointerdown', onInventoryPointerDown);
+    document.addEventListener('pointermove', onInventoryPointerMove);
+    document.addEventListener('pointerup', onInventoryPointerUp);
+    document.addEventListener('pointercancel', cancelInventoryGesture);
 
     // Animation loop
     animate();
@@ -1230,78 +1677,166 @@ function toggleGamemode() {
 }
 
 // ==========================================
-// 9. WORLD & BLOCK MANAGEMENT
+// 9. WORLD & BLOCK MANAGEMENT (CHUNKED MESHER)
 // ==========================================
-// PERFORMANCE: block data lives in game.blockTypes (cheap strings), while
-// game.world holds meshes ONLY for exposed blocks. Interior blocks are never
-// turned into THREE.Mesh objects, cutting scene objects from ~175k to ~25k.
+// Blocks live in game.blockTypes (key "x,y,z" -> type). Each 16x16 column
+// chunk is merged into ONE mesh per material containing only exposed faces.
+// This collapses ~50k block meshes into ~100 chunk meshes (only exposed
+// faces, no overdraw, tiny raycast list) and keeps the game at 60 FPS.
 const NEIGHBORS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
-let worldMeshList = [];
-let worldMeshesDirty = true;
+const CHUNK = 16;
+const CHUNKS_X = WORLD_SIZE / CHUNK;
+const CHUNKS_Z = WORLD_SIZE / CHUNK;
+
+// Face templates (CCW winding from outside). matIndex maps into the
+// blockMaterials array order [+X, -X, +Y, -Y, +Z, -Z].
+const FACES = [
+    { dir: [-1, 0, 0], matIndex: 1, corners: [
+        { pos: [0, 1, 0], uv: [0, 1] }, { pos: [0, 0, 0], uv: [0, 0] },
+        { pos: [0, 1, 1], uv: [1, 1] }, { pos: [0, 0, 1], uv: [1, 0] } ] },
+    { dir: [1, 0, 0], matIndex: 0, corners: [
+        { pos: [1, 1, 1], uv: [0, 1] }, { pos: [1, 0, 1], uv: [0, 0] },
+        { pos: [1, 1, 0], uv: [1, 1] }, { pos: [1, 0, 0], uv: [1, 0] } ] },
+    { dir: [0, -1, 0], matIndex: 3, corners: [
+        { pos: [1, 0, 1], uv: [1, 0] }, { pos: [0, 0, 1], uv: [0, 0] },
+        { pos: [1, 0, 0], uv: [1, 1] }, { pos: [0, 0, 0], uv: [0, 1] } ] },
+    { dir: [0, 1, 0], matIndex: 2, corners: [
+        { pos: [0, 1, 1], uv: [1, 1] }, { pos: [1, 1, 1], uv: [0, 1] },
+        { pos: [0, 1, 0], uv: [1, 0] }, { pos: [1, 1, 0], uv: [0, 0] } ] },
+    { dir: [0, 0, -1], matIndex: 5, corners: [
+        { pos: [1, 0, 0], uv: [0, 0] }, { pos: [0, 0, 0], uv: [1, 0] },
+        { pos: [1, 1, 0], uv: [0, 1] }, { pos: [0, 1, 0], uv: [1, 1] } ] },
+    { dir: [0, 0, 1], matIndex: 4, corners: [
+        { pos: [0, 0, 1], uv: [0, 0] }, { pos: [1, 0, 1], uv: [1, 0] },
+        { pos: [0, 1, 1], uv: [0, 1] }, { pos: [1, 1, 1], uv: [1, 1] } ] }
+];
+
+const dirtyChunks = new Set();
+let chunkMeshList = [];
+
+function chunkKey(cx, cz) {
+    return `${cx},${cz}`;
+}
+
+function markBlockDirty(x, y, z) {
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            const cx = Math.floor((x + dx) / CHUNK), cz = Math.floor((z + dz) / CHUNK);
+            if (cx < 0 || cz < 0 || cx >= CHUNKS_X || cz >= CHUNKS_Z) continue;
+            dirtyChunks.add(chunkKey(cx, cz));
+        }
+    }
+}
+
+function buildChunk(cx, cz) {
+    const key = chunkKey(cx, cz);
+    const old = game.chunks.get(key);
+    if (old) for (const m of old.meshes) { game.scene.remove(m); m.geometry.dispose(); }
+
+    const buckets = new Map(); // material -> vertex arrays
+    const x0 = cx * CHUNK, z0 = cz * CHUNK;
+    for (let x = x0; x < x0 + CHUNK; x++) {
+        for (let z = z0; z < z0 + CHUNK; z++) {
+            for (let y = 0; y <= 48; y++) {
+                const type = game.blockTypes.get(`${x},${y},${z}`);
+                if (!type) continue;
+                const mats = blockMaterials[type] || blockMaterials.dirt;
+                for (const face of FACES) {
+                    if (game.blockTypes.has(`${x + face.dir[0]},${y + face.dir[1]},${z + face.dir[2]}`)) continue;
+                    const mat = Array.isArray(mats) ? mats[face.matIndex] : mats;
+                    let b = buckets.get(mat);
+                    if (!b) { b = { positions: [], normals: [], uvs: [], indices: [] }; buckets.set(mat, b); }
+                    const ndx = b.positions.length / 3;
+                    for (const c of face.corners) {
+                        b.positions.push(x - 0.5 + c.pos[0], y - 0.5 + c.pos[1], z - 0.5 + c.pos[2]);
+                        b.normals.push(face.dir[0], face.dir[1], face.dir[2]);
+                        b.uvs.push(c.uv[0], c.uv[1]);
+                    }
+                    b.indices.push(ndx, ndx + 1, ndx + 2, ndx + 2, ndx + 1, ndx + 3);
+                }
+            }
+        }
+    }
+
+    const meshes = [];
+    for (const [mat, b] of buckets) {
+        if (b.indices.length === 0) continue;
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.Float32BufferAttribute(b.positions, 3));
+        geom.setAttribute('normal', new THREE.Float32BufferAttribute(b.normals, 3));
+        geom.setAttribute('uv', new THREE.Float32BufferAttribute(b.uvs, 2));
+        geom.setIndex(b.indices);
+        geom.computeBoundingSphere();
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        game.scene.add(mesh);
+        meshes.push(mesh);
+    }
+    game.chunks.set(key, { meshes });
+}
+
+function rebuildChunkList() {
+    chunkMeshList = [];
+    for (const rec of game.chunks.values()) chunkMeshList.push(...rec.meshes);
+}
+
+function processDirtyChunks() {
+    if (dirtyChunks.size === 0) return;
+    for (const key of dirtyChunks) {
+        const [cx, cz] = key.split(',').map(Number);
+        buildChunk(cx, cz);
+    }
+    dirtyChunks.clear();
+    rebuildChunkList();
+}
+
+function buildAllChunks() {
+    for (let cx = 0; cx < CHUNKS_X; cx++) {
+        for (let cz = 0; cz < CHUNKS_Z; cz++) buildChunk(cx, cz);
+    }
+    rebuildChunkList();
+}
+
+function clearWorldMeshes() {
+    for (const rec of game.chunks.values()) {
+        for (const m of rec.meshes) { game.scene.remove(m); m.geometry.dispose(); }
+    }
+    game.chunks.clear();
+    dirtyChunks.clear();
+    chunkMeshList = [];
+}
 
 function getWorldMeshes() {
-    if (worldMeshesDirty) {
-        worldMeshList = Array.from(game.world.values()).filter(m => m.visible);
-        worldMeshesDirty = false;
-    }
-    return worldMeshList;
+    return chunkMeshList;
 }
 
-function blockMesh(x, y, z, type) {
-    const mesh = new THREE.Mesh(sharedGeometry, blockMaterials[type] || blockMaterials.dirt);
-    mesh.position.set(x * BLOCK_SIZE, y * BLOCK_SIZE, z * BLOCK_SIZE);
-    mesh.matrixAutoUpdate = false;
-    mesh.updateMatrix();
-    mesh.userData = { blockType: type };
-    return mesh;
-}
-
-function isExposed(x, y, z) {
-    return NEIGHBORS.some(([dx, dy, dz]) => !game.blockTypes.has(`${x+dx},${y+dy},${z+dz}`));
-}
-
-// Create/keep the mesh only when the block is exposed; remove it when enclosed.
-function refreshBlockMesh(x, y, z) {
-    const key = `${x},${y},${z}`;
-    const type = game.blockTypes.get(key);
-    const mesh = game.world.get(key);
-    if (type && isExposed(x, y, z)) {
-        if (!mesh) {
-            const m = blockMesh(x, y, z, type);
-            game.scene.add(m);
-            game.world.set(key, m);
-            worldMeshesDirty = true;
-        }
-    } else if (mesh) {
-        game.scene.remove(mesh);
-        game.world.delete(key);
-        worldMeshesDirty = true;
-    }
+// Resolve the aimed-at block from a raycast hit on a chunk mesh.
+// Chunk meshes are untransformed, so face normals are world-space.
+function blockFromHit(intersect) {
+    const p = intersect.point, n = intersect.face.normal;
+    return {
+        x: Math.floor(p.x - n.x * 0.5),
+        y: Math.floor(p.y - n.y * 0.5),
+        z: Math.floor(p.z - n.z * 0.5)
+    };
 }
 
 function addBlock(x, y, z, type) {
-    const key = `${x},${y},${z}`;
-    game.blockTypes.set(key, type);
-    refreshBlockMesh(x, y, z);
-    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
+    game.blockTypes.set(`${x},${y},${z}`, type);
+    markBlockDirty(x, y, z);
 }
 
 function removeBlock(x, y, z, collect) {
     const key = `${x},${y},${z}`;
     const type = game.blockTypes.get(key);
     if (!type) return false;
-    const mesh = game.world.get(key);
-    if (mesh) {
-        if (collect) {
-            playSound('break', type);
-            addToInventory(type, 1);
-        }
-        game.scene.remove(mesh);
-        game.world.delete(key);
-        worldMeshesDirty = true;
-    }
     game.blockTypes.delete(key);
-    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
+    markBlockDirty(x, y, z);
+    if (collect) {
+        playSound('break', type);
+        addToInventory(type, 1);
+    }
     return true;
 }
 
@@ -1310,8 +1845,7 @@ function applyEdit(x, y, z, type) {
     const key = `${x},${y},${z}`;
     if (type === null || type === undefined) game.blockTypes.delete(key);
     else game.blockTypes.set(key, type);
-    refreshBlockMesh(x, y, z);
-    for (const [dx, dy, dz] of NEIGHBORS) refreshBlockMesh(x + dx, y + dy, z + dz);
+    markBlockDirty(x, y, z);
 }
 
 function getBlock(x, y, z) {
@@ -1362,16 +1896,7 @@ function generateTerrain(size) {
         }
     }
 
-    // Mesh ONLY the exposed blocks (the big performance win)
-    for (const [key, type] of game.blockTypes) {
-        const [x, y, z] = key.split(',').map(Number);
-        if (isExposed(x, y, z)) {
-            const m = blockMesh(x, y, z, type);
-            game.scene.add(m);
-            game.world.set(key, m);
-        }
-    }
-    worldMeshesDirty = true;
+    buildAllChunks();
 }
 
 // Calculate mining hardness based on block type and depth (y)
@@ -1524,6 +2049,7 @@ function syncAnimals(list) {
     for (const [id, a] of game.animals) {
         if (!ids.has(id)) {
             game.scene.remove(a.model);
+            clearHitFeedback(a.model);
             game.animals.delete(id);
         }
     }
@@ -1624,6 +2150,7 @@ function removeOtherPlayer(playerId) {
     const player = game.otherPlayers.get(playerId);
     if (player) {
         game.scene.remove(player.model);
+        clearHitFeedback(player.model);
         game.otherPlayers.delete(playerId);
     }
 }
@@ -1708,6 +2235,8 @@ function respawn() {
     for (let i = 0; i < 4; i++) craftingGrid[i] = null;
     craftOutput = null;
     draggedItem = null;
+    cursorOrigin = null;
+    inventoryGesture = null;
     updateCrafting();
     updateInventoryUI();
     updateHud();
@@ -1781,30 +2310,34 @@ function survival(delta) {
     animalClock += delta;
     pickupClock += delta;
 
-    // AI & Hostile Mobs Movement
+    // AI & Hostile Mobs Movement (allocation-free for 60 FPS)
+    const camPos = game.camera.position;
     for (const a of game.animals.values()) {
-        const distToPlayer = game.camera.position.distanceTo(new THREE.Vector3(a.x, a.y, a.z));
+        const pdx = camPos.x - a.x, pdy = camPos.y - a.y, pdz = camPos.z - a.z;
+        const distToPlayer = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz);
 
         if (game.animalHost === game.playerId) {
             if (a.type === 'zombie' && distToPlayer < 16) {
                 // Zombie pursues player
-                const dir = game.camera.position.clone().sub(new THREE.Vector3(a.x, a.y, a.z)).normalize();
-                a.x += dir.x * delta * 1.8;
-                a.z += dir.z * delta * 1.8;
-                a.angle = Math.atan2(dir.x, dir.z);
+                const len = Math.max(1e-6, distToPlayer);
+                const ux = pdx / len, uz = pdz / len;
+                a.x += ux * delta * 1.8;
+                a.z += uz * delta * 1.8;
+                a.angle = Math.atan2(ux, uz);
             } else if (a.type === 'skeleton' && distToPlayer < 18) {
                 // Skeleton shoots bow periodically
                 a.shootClock = (a.shootClock || 0) + delta;
                 if (a.shootClock > 3.0) {
                     a.shootClock = 0;
-                    spawnSkeletonArrow(new THREE.Vector3(a.x, a.y + 1.2, a.z), game.camera.position);
+                    spawnSkeletonArrow(new THREE.Vector3(a.x, a.y + 1.2, a.z), camPos);
                 }
             } else if (a.type === 'creeper' && distToPlayer < 12) {
                 // Creeper chases and explodes!
-                const dir = game.camera.position.clone().sub(new THREE.Vector3(a.x, a.y, a.z)).normalize();
-                a.x += dir.x * delta * 2.2;
-                a.z += dir.z * delta * 2.2;
-                a.angle = Math.atan2(dir.x, dir.z);
+                const len = Math.max(1e-6, distToPlayer);
+                const ux = pdx / len, uz = pdz / len;
+                a.x += ux * delta * 2.2;
+                a.z += uz * delta * 2.2;
+                a.angle = Math.atan2(ux, uz);
 
                 if (distToPlayer < 3.0) {
                     a.fuseClock = (a.fuseClock || 0) + delta;
@@ -1838,10 +2371,13 @@ function survival(delta) {
             a.y = THREE.MathUtils.lerp(a.y, surface(a.x, a.z), Math.min(1, delta * 10));
         }
 
-        const target = new THREE.Vector3(a.x, a.y, a.z);
-        const d = target.clone().sub(a.model.position);
-        if (d.lengthSq() > 0.0001) a.model.rotation.y = Math.atan2(d.x, d.z);
-        a.model.position.lerp(target, Math.min(1, delta * 12));
+        const m = a.model.position;
+        const ddx = a.x - m.x, ddy = a.y - m.y, ddz = a.z - m.z;
+        if (ddx * ddx + ddy * ddy + ddz * ddz > 0.0001) a.model.rotation.y = Math.atan2(ddx, ddz);
+        const k = Math.min(1, delta * 12);
+        m.x += ddx * k;
+        m.y += ddy * k;
+        m.z += ddz * k;
 
         // Zombie melee hit
         if (a.type === 'zombie' && distToPlayer < 1.6) {
@@ -1868,8 +2404,12 @@ function survival(delta) {
         m.position.y = m.userData.base + Math.sin(performance.now() / 400) * 0.12;
         m.rotation.y += delta * 2;
         if (pickupClock >= 0.3 && m.position.distanceTo(game.camera.position) < 2.5) {
-            showNotice('Picked up Raw Porkchop!');
+            if (!canAddToInventory('meat', 1)) {
+                showNotice('Inventory is full!');
+                continue;
+            }
             addToInventory('meat', 1);
+            showNotice('Picked up Raw Porkchop!');
             send({ type: 'meatPickup', id });
             break;
         }
@@ -1897,12 +2437,12 @@ function updateMining(delta) {
     game.raycaster.far = 5;
 
     const visibleBlocks = getWorldMeshes();
-    const intersects = game.raycaster.intersectObjects(visibleBlocks, true);
+    const intersects = game.raycaster.intersectObjects(visibleBlocks, false);
 
     if (intersects.length > 0) {
-        const block = intersects[0].object;
-        const blockPos = block.position.clone().divideScalar(BLOCK_SIZE);
+        const blockPos = blockFromHit(intersects[0]);
         const targetKey = `${blockPos.x},${blockPos.y},${blockPos.z}`;
+        const blockType = game.blockTypes.get(targetKey);
 
         if (miningTarget !== targetKey) {
             miningTarget = targetKey;
@@ -1914,10 +2454,10 @@ function updateMining(delta) {
         // Hit sound rhythm
         if (performance.now() - lastMineHitSound > 220) {
             lastMineHitSound = performance.now();
-            playSound('hit', block.userData.blockType);
+            playSound('hit', blockType);
         }
 
-        const hardness = getBlockHardness(blockPos.y, block.userData.blockType);
+        const hardness = getBlockHardness(blockPos.y, blockType);
         miningProgress += delta / hardness;
 
         if (progressEl) progressEl.style.display = 'block';
@@ -1925,7 +2465,12 @@ function updateMining(delta) {
 
         if (miningProgress >= 1.0) {
             // Block successfully mined!
-            send({ type: 'blockRemoved', x: blockPos.x, y: blockPos.y, z: blockPos.z });
+            if (!canAddToInventory(blockType, 1)) {
+                showNotice('Inventory is full!');
+                isMining = false;
+            } else {
+                send({ type: 'blockRemoved', x: blockPos.x, y: blockPos.y, z: blockPos.z });
+            }
             miningProgress = 0;
             miningTarget = null;
             if (progressEl) progressEl.style.display = 'none';
@@ -1938,6 +2483,7 @@ function updateMining(delta) {
 }
 
 function onKeyDown(event) {
+    if (onInventoryKeyDown(event)) return;
     // Multiplayer Chat Handling
     if (event.code === 'Enter') {
         const chatInput = document.getElementById('chat-input');
@@ -2045,6 +2591,7 @@ function onMouseDown(event) {
             if (root.userData.animal) {
                 send({ type: 'animalHit', id: root.userData.animal });
                 playSound('hit', 'meat');
+                showHitFeedback(root);
                 triggerSwing();
                 isMining = false;
                 return;
@@ -2053,6 +2600,7 @@ function onMouseDown(event) {
                 if (game.player.pvp) {
                     send({ type: 'playerHit', id: root.userData.player });
                     playSound('hit', 'meat');
+                    showHitFeedback(root);
                 } else {
                     showNotice('Your PvP is OFF! Press P to enable.');
                 }
@@ -2086,13 +2634,17 @@ function onMouseDown(event) {
 
         game.raycaster.setFromCamera(new THREE.Vector2(0, 0), game.camera);
         game.raycaster.far = 5;
-        const blockIntersects = game.raycaster.intersectObjects(getWorldMeshes(), true);
+        const blockIntersects = game.raycaster.intersectObjects(getWorldMeshes(), false);
 
         if (blockIntersects.length > 0) {
             const intersect = blockIntersects[0];
-            const blockPos = intersect.object.position.clone().divideScalar(BLOCK_SIZE);
+            const blockPos = blockFromHit(intersect);
             const normal = intersect.face.normal;
-            const newPos = blockPos.clone().add(normal);
+            const newPos = {
+                x: blockPos.x + Math.round(normal.x),
+                y: blockPos.y + Math.round(normal.y),
+                z: blockPos.z + Math.round(normal.z)
+            };
             const playerPos = game.camera.position.clone().divideScalar(BLOCK_SIZE).floor();
 
             if (!(newPos.x === playerPos.x && (newPos.y === playerPos.y || newPos.y === playerPos.y - 1) && newPos.z === playerPos.z)) {
@@ -2123,6 +2675,69 @@ function onMouseUp(event) {
         miningTarget = null;
         const progressEl = document.getElementById('mining-progress');
         if (progressEl) progressEl.style.display = 'none';
+    }
+}
+
+// ==========================================
+// 13.5 HIT FEEDBACK (targets jump + flash red for 1 second)
+// ==========================================
+const HIT_FLASH_DURATION = 1.0;   // seconds red
+const HIT_HOP_DURATION = 0.45;    // seconds of the jump arc
+const HIT_HOP_HEIGHT = 0.55;
+const hitFeedback = new Map();    // model.uuid -> { model, timer, origMats }
+
+function makeRedMaterial(m) {
+    const c = m.clone();
+    c.color.setRGB(0.45, 0.1, 0.1);
+    if (c.emissive) c.emissive.setHex(0x7a1010);
+    return c;
+}
+
+function showHitFeedback(model) {
+    if (!model) return;
+    let fb = hitFeedback.get(model.uuid);
+    if (!fb) {
+        const origMats = [];
+        model.traverse(o => {
+            if (o.isMesh) origMats.push([o, o.material]);
+        });
+        fb = { model, timer: 0, origMats };
+        hitFeedback.set(model.uuid, fb);
+        // Swap every mesh to a red-tinted version of its material
+        for (const [o, orig] of origMats) {
+            o.material = Array.isArray(orig) ? orig.map(makeRedMaterial) : makeRedMaterial(orig);
+        }
+    }
+    fb.timer = HIT_FLASH_DURATION; // repeated hits refresh the flash
+}
+
+function endHitFeedback(fb) {
+    for (const [o, orig] of fb.origMats) o.material = orig;
+}
+
+function clearHitFeedback(model) {
+    const fb = hitFeedback.get(model.uuid);
+    if (fb) {
+        endHitFeedback(fb);
+        hitFeedback.delete(model.uuid);
+    }
+}
+
+function updateHitFeedback(delta) {
+    if (hitFeedback.size === 0) return;
+    for (const fb of Array.from(hitFeedback.values())) {
+        if (fb.timer <= 0) continue;
+        fb.timer -= delta;
+        // Parabolic hop during the first part of the flash
+        const elapsed = HIT_FLASH_DURATION - fb.timer;
+        if (elapsed < HIT_HOP_DURATION) {
+            const t = elapsed / HIT_HOP_DURATION;
+            fb.model.position.y += 4 * HIT_HOP_HEIGHT * t * (1 - t);
+        }
+        if (fb.timer <= 0) {
+            endHitFeedback(fb);
+            hitFeedback.delete(fb.model.uuid);
+        }
     }
 }
 
@@ -2291,10 +2906,8 @@ function connectToServer() {
 function handleServerMessage(message) {
     switch (message.type) {
         case 'init':
-            for (const m of game.world.values()) game.scene.remove(m);
-            game.world.clear();
+            clearWorldMeshes();
             game.blockTypes.clear();
-            worldMeshesDirty = true;
             for (const id of Array.from(game.otherPlayers.keys())) removeOtherPlayer(id);
             for (const m of meatDrops.values()) game.scene.remove(m);
             meatDrops.clear();
@@ -2307,6 +2920,7 @@ function handleServerMessage(message) {
             // Terrain is generated locally (deterministic), then player edits are replayed on top
             generateTerrain(message.worldSize || WORLD_SIZE);
             (message.world || []).forEach(b => applyEdit(b.x, b.y, b.z, b.type));
+            processDirtyChunks();
 
             syncAnimals(message.animals);
             ready = true;
@@ -2400,6 +3014,8 @@ function animate() {
     updateArmSwing(delta);
     updateSelectionOutline();
     survival(delta);
+    updateHitFeedback(delta);
+    processDirtyChunks();
     renderPlayerPreview();
 
     // Rotate Sky & Clouds slowly
@@ -2415,7 +3031,7 @@ function onWindowResize() {
 }
 
 document.addEventListener('contextmenu', e => e.preventDefault());
-window.addEventListener('blur', () => { game.keys = {}; isMining = false; });
+window.addEventListener('blur', () => { game.keys = {}; isMining = false; cancelInventoryGesture(); });
 
 // Start the game!
 init();

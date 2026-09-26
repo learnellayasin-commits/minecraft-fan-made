@@ -19,7 +19,9 @@ Open http://localhost:3000 in two browser windows. Three.js is loaded from the p
 
 - Click the start panel to capture the mouse; Escape releases it.
 - WASD moves, mouse looks, Space jumps.
-- Left click hits the nearest animal/player or breaks a block, within five blocks.
+- In the inventory, left click picks up, places, merges, or swaps a stack; right click picks up half or places one item. Drag while carrying to distribute, double-click to gather matching items, and Shift-click to quick-transfer between the hotbar and main inventory. Focus a slot and use arrows, Enter/Space, Shift+Enter, or 1-9 for keyboard inventory controls.
+- This uses modern Java Edition survival inventory interaction as a reference, adapted to the prototype's 36-slot inventory, 2x2 crafting grid, and 64-item stacks. The prototype has no world item-drop system, so releasing a carried stack outside the inventory returns it to inventory; closing also returns crafting inputs and the cursor stack when capacity allows.
+- Left click hits the nearest animal/player or breaks a block, within five blocks. Hit targets jump and flash red for one second.
 - Right click uses the held item: places the selected block, or eats a held porkchop when hungry. Keys 1-9 select hotbar slots; Q opens the 36-slot inventory with 2x2 crafting.
 - Animals take three hits to die and drop a rotating, floating meat item. Walk nearby to pick it up; the notice says Meat and the boxed inventory count increases.
 - E consumes one meat and restores six hunger points, up to twenty.
@@ -45,7 +47,7 @@ For a reported 0.1 CPU / 512 MB machine, begin with two to four friends. Eight c
 - Player updates are 10 Hz; animal updates are 5 Hz. Server messages are event-driven, with no periodic physics/survival/animal tick.
 - Inbound frames are limited to 32 KiB, each connection to 40 messages/second, and outgoing backlog to 256 KiB before disconnect. Compression is disabled to save CPU. Initial snapshots contain only player block edits, so they stay tiny regardless of world size.
 - Block coordinates are bounded to the 128 x 49 x 128 world; animals and drops cannot grow beyond the initial twenty-four. Only explicitly allowed frontend files are served.
-- Block geometry/materials are shared, interior blocks never become meshes at all (only exposed blocks, ~26% of the world), block matrices are frozen, and the visible-mesh list for raycasts is cached and rebuilt only on edits. Shadows are disabled, pixel ratio is capped at 1.5, and Three.js performs frustum culling.
+- Rendering uses a chunked mesher: each 16x16 column chunk is merged into one mesh per material containing only exposed faces (~49k quads for the entire terrain in ~100 meshes instead of 50k+ individual block meshes), chunk meshes have frozen matrices, edits rebuild only the affected chunks, and the mob AI loop is allocation-free. Shadows are disabled, pixel ratio is capped at 1.5, and Three.js frustum-culls whole chunks.
 
 ## Verification
 
