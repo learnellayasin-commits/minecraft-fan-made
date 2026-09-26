@@ -19,10 +19,12 @@ Open http://localhost:3000 in two browser windows. Three.js is loaded from the p
 
 - Click the start panel to capture the mouse; Escape releases it.
 - WASD moves, mouse looks, Space jumps.
-- In the inventory, left click picks up, places, merges, or swaps a stack; right click picks up half or places one item. Drag while carrying to distribute, double-click to gather matching items, and Shift-click to quick-transfer between the hotbar and main inventory. Focus a slot and use arrows, Enter/Space, Shift+Enter, or 1-9 for keyboard inventory controls.
-- This uses modern Java Edition survival inventory interaction as a reference, adapted to the prototype's 36-slot inventory, 2x2 crafting grid, and 64-item stacks. The prototype has no world item-drop system, so releasing a carried stack outside the inventory returns it to inventory; closing also returns crafting inputs and the cursor stack when capacity allows.
-- Left click hits the nearest animal/player or breaks a block, within five blocks. Hit targets jump and flash red for one second.
-- Right click uses the held item: places the selected block, or eats a held porkchop when hungry. Keys 1-9 select hotbar slots; Q opens the 36-slot inventory with 2x2 crafting.
+- In the inventory, left click picks up, places, merges, or swaps a stack; right click picks up half or places one item. Drag while carrying to distribute, double-click to gather matching items, and Shift-click to quick-transfer between inventory sections. Focus a slot and use arrows, Enter/Space, Context Menu or Shift+F10, Shift+Enter, or 1-9 for keyboard controls.
+- Inventory interactions follow modern Java Edition survival rules, adapted to this prototype's 36-slot player inventory, optional 27-slot backpack, and 64-item stack limit (tools/backpacks stack to one). Releasing a carried stack outside the inventory returns it to inventory because there is no world item-drop system. Closing returns crafting inputs and the cursor stack when capacity allows.
+- The player inventory has a 2x2 crafting grid. Craft a crafting table from four planks, place it, then right-click it to open a 3x3 grid for wooden/stone tools and an 8-plank backpack. The backpack adds 27 storage slots; nested backpacks are not allowed. Tools have no durability and improve mining speed on matching materials.
+- Left click hits the nearest animal/player or mines a block within five blocks. Hit targets jump and flash red for one second. Pickaxes mine stone faster, axes mine wood/planks faster, and shovels mine dirt/grass/sand faster.
+- Right click uses the held item: places a block, eats a held porkchop when hungry, or opens a placed crafting table. Keys 1-9 select hotbar slots; Q opens the inventory.
+- Day/night uses an accelerated four-minute cycle (two minutes day, two minutes night) so the transition is easy to observe; the status panel shows the in-game clock.
 - Animals take three hits to die and drop a rotating, floating meat item. Walk nearby to pick it up; the notice says Meat and the boxed inventory count increases.
 - E consumes one meat and restores six hunger points, up to twenty.
 - Red pixel hearts show health; pixel turkey legs show hunger. Hunger drains one point per fifteen active simulation seconds. Empty hunger costs one health per two seconds.

@@ -315,6 +315,8 @@
             border: 3px solid #373737;
             box-shadow: inset 3px 3px 0 #ffffff, inset -3px -3px 0 #555555, 0 8px 24px rgba(0,0,0,0.8);
             width: 440px;
+            max-height: 90vh;
+            overflow-y: auto;
             padding: 16px;
             color: #3f3f3f;
             display: flex;
@@ -359,6 +361,10 @@
             display: grid;
             grid-template-columns: repeat(2, 40px);
             gap: 4px;
+        }
+
+        .crafting-grid.three-by-three {
+            grid-template-columns: repeat(3, 40px);
         }
 
         .crafting-arrow {
@@ -520,6 +526,11 @@
             <div class="inv-header"><span>Hotbar</span></div>
             <div class="inv-grid" id="hotbar-inv-grid">
                 <!-- 9 hotbar slots generated dynamically -->
+            </div>
+
+            <div id="backpack-section" hidden>
+                <div class="inv-header"><span>Backpack</span></div>
+                <div class="inv-grid" id="backpack-inv-grid"></div>
             </div>
         </div>
     </div>
